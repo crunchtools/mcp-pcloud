@@ -1,0 +1,31 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "name": "io.github.crunchtools/pcloud",
+  "description": "Secure MCP server for pCloud cloud storage",
+  "version": "2.0.0",
+  "repository": {
+    "url": "https://github.com/crunchtools/mcp-pcloud",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "mcp-pcloud-crunchtools",
+      "version": "2.0.0",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "PCLOUD_ACCESS_TOKEN",
+          "description": "pCloud OAuth access token",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "PCLOUD_API_HOST",
+          "description": "api.pcloud.com (default) or eapi.pcloud.com for EU accounts",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-pcloud-crunchtools"
+version = "2.0.0"
+description = "Secure MCP server for pCloud cloud storage"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "AGPL-3.0-or-later"
+authors = [
+    { name = "crunchtools.com" }
+]
+keywords = ["mcp", "model-context-protocol", "pcloud", "cloud-storage"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "fastmcp>=2.0,<3.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/crunchtools/mcp-pcloud"
+Issues = "https://github.com/crunchtools/mcp-pcloud/issues"
+
+[project.scripts]
+mcp-pcloud-crunchtools = "mcp_pcloud_crunchtools:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.6.0",
+    "mypy>=1.11.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_pcloud_crunchtools"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "S", "B", "C4", "C901", "DTZ", "T10", "ISC", "PIE", "PT", "RET", "SIM", "TID", "TCH", "ARG", "PLC", "PLE", "PLR", "PLW", "TRY", "RUF"]
+ignore = [
+    "S101",     # assert allowed in tests
+    "TRY003",   # long exception messages ok
+    "PLR0913",  # many arguments ok for tools
+    "PLR2004",  # magic numbers ok (HTTP status codes, limits)
+    "PLW0603",  # global statement ok for singletons
+    "PIE790",   # pass in empty classes ok
+    "PLC0415",  # imports in tests ok
+    "S105",     # hardcoded passwords in tests ok
+    "TID252",   # relative imports in package ok
+    "RUF022",   # __all__ sorted by category, not alphabetically
+]
+
+[tool.ruff.lint.pylint]
+max-branches = 10
+max-statements = 50
+
+[tool.ruff.lint.mccabe]
+max-complexity = 35
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S105", "PLC0415", "PLR2004", "ARG002"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

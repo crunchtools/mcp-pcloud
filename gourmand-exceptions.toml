@@ -1,0 +1,4 @@
+[[exceptions]]
+check = "summary_litter"
+path = "CLAUDE.md"
+justification = "Claude Code project instructions for AI assistant orientation. Constitution Section V lists framework requirements (CLAUDE.md for Claude Code) as an acceptable exception."
