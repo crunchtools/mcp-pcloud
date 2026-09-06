@@ -22,7 +22,7 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
-mcp: FastMCP = FastMCP("mcp-pcloud-crunchtools", version="2.0.0")
+mcp: FastMCP = FastMCP("mcp-pcloud-crunchtools", version="2.1.0")
 
 
 def _safe(exc: UserError) -> str:

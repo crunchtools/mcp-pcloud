@@ -4,7 +4,7 @@
 
 Secure MCP server for [pCloud](https://www.pcloud.com/) cloud storage. Browse, search, read, and manage files and folders in a pCloud account through the Model Context Protocol.
 
-Authentication is OAuth-only. pCloud accounts with two-factor authentication enabled cannot be accessed with a username and password, and password-derived tokens travel in the URL query string — so this server accepts an OAuth access token and sends it in an `Authorization: Bearer` header.
+Authentication is token-based, OAuth preferred. pCloud accounts with two-factor authentication enabled cannot be accessed with a username and password, and password-derived tokens travel in the URL query string. This server never derives a credential from a password and never puts one in a URL.
 
 ## Installation
 
@@ -23,13 +23,17 @@ podman run quay.io/crunchtools/mcp-pcloud
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `PCLOUD_ACCESS_TOKEN` | yes* | pCloud OAuth access token |
-| `PCLOUD_ACCESS_TOKEN_FILE` | yes* | Path to a file holding the token — **preferred**, takes precedence |
+| `PCLOUD_ACCESS_TOKEN` | one of | OAuth access token — sent as an `Authorization: Bearer` header |
+| `PCLOUD_AUTH_TOKEN` | one of | pCloud session token — sent in a POST body |
 | `PCLOUD_API_HOST` | no | `api.pcloud.com` (default) or `eapi.pcloud.com` for EU accounts |
 
-\* Exactly one of the two is required.
+At least one credential is required. When both are set, the OAuth token wins.
 
-Create an access token at [pCloud my_apps](https://docs.pcloud.com/my_apps/). The `_FILE` form is preferred for container deployments — it works with podman secrets, Kubernetes secret volumes, and systemd `LoadCredential=`. The server warns (but does not fail) if the token file is group- or world-readable.
+Every credential variable also accepts a `_FILE` form (`PCLOUD_ACCESS_TOKEN_FILE`, `PCLOUD_AUTH_TOKEN_FILE`) pointing at a file that holds the value. The `_FILE` form takes precedence and is preferred for container deployments — it works with podman secrets, Kubernetes secret volumes, and systemd `LoadCredential=`. The server warns (but does not fail) if the file is group- or world-readable.
+
+### Which token do I have?
+
+Create an OAuth access token at [pCloud my_apps](https://docs.pcloud.com/my_apps/). If you only have the token the pCloud desktop client stores, that is a *session* token: pCloud rejects it as an `access_token` with `result 2094`, so set it as `PCLOUD_AUTH_TOKEN` instead. Both carry the same authority over the account — protect them identically.
 
 ### Claude Code
 

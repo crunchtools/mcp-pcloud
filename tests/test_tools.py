@@ -224,3 +224,44 @@ class TestClientErrorHandling:
             await tools.get_file_info(long_path)
         assert "..." in str(excinfo.value)
         assert len(str(excinfo.value)) < 100
+
+
+class TestSessionTokenTransport:
+    """A session token must travel in the POST body, never in a URL."""
+
+    async def test_session_mode_posts_with_auth_in_body(self, monkeypatch):
+        from mcp_pcloud_crunchtools import client as client_module
+        from mcp_pcloud_crunchtools import config as config_module
+
+        monkeypatch.delenv("PCLOUD_ACCESS_TOKEN", raising=False)
+        monkeypatch.setenv("PCLOUD_AUTH_TOKEN", "session-value")
+        config_module._config = None
+        client_module._client = None
+
+        sent = {}
+
+        async def fake_post(_self, url, **kwargs):
+            sent["url"] = url
+            sent["data"] = kwargs.get("data")
+            return mock_response({"result": 0, "metadata": FILE_META})
+
+        monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
+        await tools.get_file_info("/Documents/report.pdf")
+
+        assert sent["data"]["auth"] == "session-value"
+        assert "session-value" not in sent["url"]
+
+    async def test_oauth_mode_uses_get_with_bearer_header(self):
+        with patch_client(mock_response({"result": 0, "metadata": FILE_META})):
+            await tools.get_file_info("/a.txt")
+        from mcp_pcloud_crunchtools.client import get_client
+
+        client = await get_client()._get_client()
+        assert client.headers["Authorization"] == "Bearer test-token-value"
+
+    async def test_invalid_access_token_code_maps_to_auth_error(self):
+        with (
+            patch_client(mock_response({"result": 2094, "error": "bad"})),
+            pytest.raises(AuthenticationError),
+        ):
+            await tools.get_file_info("/a.txt")

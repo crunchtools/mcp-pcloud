@@ -14,6 +14,7 @@ from .errors import (
     PCLOUD_ACCESS_DENIED,
     PCLOUD_DIR_NOT_FOUND,
     PCLOUD_FILE_NOT_FOUND,
+    PCLOUD_INVALID_ACCESS_TOKEN,
     PCLOUD_INVALID_TOKEN,
     PCLOUD_LOGIN_REQUIRED,
     PCLOUD_RATE_LIMIT,
@@ -38,6 +39,7 @@ class PCloudClient:
 
     Security properties:
     - OAuth token sent in the Authorization header, never in the URL
+    - Session token sent in a POST body, never in the URL
     - TLS certificate validation left at httpx defaults (always on)
     - Request timeout and response size ceiling enforced
     - pCloud result codes mapped onto the safe error hierarchy
@@ -49,14 +51,19 @@ class PCloudClient:
         self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Return the shared async client, creating it on first use."""
+        """Return the shared async client, creating it on first use.
+
+        An OAuth token becomes a standing Authorization header. A session
+        token carries per-request in the POST body instead, so no
+        credential header is set here.
+        """
         if self._client is None:
+            headers = {"Accept": "application/json"}
+            if self._config.uses_oauth:
+                headers["Authorization"] = f"Bearer {self._config.access_token}"
             self._client = httpx.AsyncClient(
                 base_url=self._config.api_base_url,
-                headers={
-                    "Authorization": f"Bearer {self._config.access_token}",
-                    "Accept": "application/json",
-                },
+                headers=headers,
                 timeout=httpx.Timeout(REQUEST_TIMEOUT),
             )
         return self._client
@@ -69,7 +76,11 @@ class PCloudClient:
 
     def _raise_for_result(self, code: int, message: str, context: str) -> None:
         """Translate a pCloud result code into a safe user-facing error."""
-        if code in (PCLOUD_LOGIN_REQUIRED, PCLOUD_INVALID_TOKEN):
+        if code in (
+            PCLOUD_LOGIN_REQUIRED,
+            PCLOUD_INVALID_TOKEN,
+            PCLOUD_INVALID_ACCESS_TOKEN,
+        ):
             raise AuthenticationError(message)
         if code == PCLOUD_TWO_FACTOR_REQUIRED:
             raise TwoFactorRequiredError()
@@ -109,7 +120,12 @@ class PCloudClient:
         logger.debug("pCloud request: %s", method)
 
         try:
-            response = await client.get(f"/{method}", params=params or {})
+            if self._config.uses_oauth:
+                response = await client.get(f"/{method}", params=params or {})
+            else:
+                form = dict(params or {})
+                form["auth"] = self._config.auth_token
+                response = await client.post(f"/{method}", data=form)
         except httpx.TimeoutException as exc:
             raise PCloudApiError(0, f"Request to {method} timed out") from exc
         except httpx.HTTPError as exc:

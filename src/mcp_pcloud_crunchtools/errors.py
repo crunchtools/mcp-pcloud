@@ -10,6 +10,7 @@ SAFE_ID_MAX_LENGTH = 40
 
 PCLOUD_LOGIN_REQUIRED = 1000
 PCLOUD_INVALID_TOKEN = 2000
+PCLOUD_INVALID_ACCESS_TOKEN = 2094
 PCLOUD_TWO_FACTOR_REQUIRED = 2297
 PCLOUD_DIR_NOT_FOUND = 2005
 PCLOUD_FILE_NOT_FOUND = 2009
@@ -20,7 +21,7 @@ PCLOUD_RATE_LIMIT = 4000
 def _scrub(message: str) -> str:
     """Remove any configured credential value from a message."""
     safe = message
-    for var in ("PCLOUD_ACCESS_TOKEN", "PCLOUD_CLIENT_SECRET"):
+    for var in ("PCLOUD_ACCESS_TOKEN", "PCLOUD_AUTH_TOKEN", "PCLOUD_CLIENT_SECRET"):
         secret = os.environ.get(var, "")
         if secret:
             safe = safe.replace(secret, "***")

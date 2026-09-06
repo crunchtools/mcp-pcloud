@@ -1,7 +1,8 @@
 # mcp-pcloud-crunchtools Constitution
 
-> **Version:** 1.0.0
+> **Version:** 1.1.0
 > **Ratified:** 2026-09-05
+> **Last Amended:** 2026-09-05
 > **Status:** Active
 > **Inherits:** [crunchtools/constitution](https://github.com/crunchtools/constitution) v1.10.0
 > **Profile:** MCP Server
@@ -28,7 +29,7 @@ Every change MUST preserve all five security layers. No exceptions.
 - Search queries are length-bounded and non-empty.
 
 **Layer 3 — API Hardening:**
-- The access token is sent in an `Authorization: Bearer` header and MUST NOT appear in a URL. Password-derived tokens travelled in the query string; that authentication mode was removed in 2.0.0 and MUST NOT return.
+- Credentials MUST NOT appear in a URL. An OAuth access token is sent in an `Authorization: Bearer` header; a pCloud session token is sent in a POST body. Password-derived tokens travelled in the query string; that authentication mode was removed in 2.0.0 and MUST NOT return.
 - TLS certificate validation is left at httpx defaults and MUST NOT be made configurable off.
 - Requests carry a 30 second timeout; responses above 10 MB are rejected.
 - pCloud result codes are mapped onto the safe error hierarchy rather than surfaced raw.
@@ -49,9 +50,22 @@ Every change MUST preserve all five security layers. No exceptions.
 
 Business logic MUST NOT live in `server.py`. MCP registration MUST NOT live in `tools/*.py`.
 
-### 3. Authentication Is OAuth Only
+### 3. Authentication Is Token-Based, OAuth Preferred
 
-pCloud accounts with two-factor authentication enabled cannot complete the legacy digest login, and that flow placed the session token in the URL. This server accepts an OAuth access token only. Reintroducing username/password authentication requires a constitutional amendment.
+pCloud accounts with two-factor authentication enabled cannot complete the legacy digest login, and that flow placed the resulting token in the URL query string. This server never derives a credential from a password and never places one in a URL.
+
+Two credential kinds are accepted:
+
+| Kind | Variable | Transport |
+|------|----------|-----------|
+| OAuth access token | `PCLOUD_ACCESS_TOKEN` | `Authorization: Bearer` header, GET |
+| pCloud session token | `PCLOUD_AUTH_TOKEN` | `auth` field in a POST body |
+
+Both honor the `_FILE` convention. When both are configured the OAuth token wins; the session token is a fallback for accounts that have no OAuth application provisioned.
+
+A session token is accepted because pCloud issues it to its own desktop client and rejects it as an `access_token` (`result 2094`), so it cannot be exchanged for an OAuth token. It carries the same authority as an OAuth token and MUST be protected identically. The security property the constitution actually defends is that a credential never enters a URL, where it would leak into access logs, proxies, and referrers; a POST body preserves that property.
+
+Reintroducing username/password authentication, or moving any credential into a URL or query string, requires a constitutional amendment.
 
 ### 4. Three Distribution Channels
 
@@ -176,4 +190,11 @@ New tool groups, new subsystems, changes to the security model, and changes span
 
 ## X. Amendment Process
 
-Amendments follow the universal constitution's process. Changes to the five-layer security model or to the OAuth-only authentication principle require an explicit version bump of this document and a recorded justification.
+Amendments follow the universal constitution's process. Changes to the five-layer security model or to the authentication principle require an explicit version bump of this document and a recorded justification.
+
+### Amendment History
+
+| Version | Date | Change |
+|---------|------|--------|
+| 1.0.0 | 2026-09-05 | Initial ratification alongside the 2.0.0 Python rewrite. |
+| 1.1.0 | 2026-09-05 | Section I.3 widened from "OAuth only" to "token-based, OAuth preferred", admitting pCloud session tokens transported in a POST body. Rationale: pCloud rejects its own desktop-client session token as an `access_token` (`result 2094`), so an account without a provisioned OAuth application had no usable credential. The no-credentials-in-URL rule is unchanged and is what Layer 3 continues to enforce. |

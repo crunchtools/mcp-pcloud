@@ -21,9 +21,9 @@ Business logic never goes in `server.py`. MCP registration never goes in `tools/
 
 ## Authentication
 
-OAuth access token only, sent as an `Authorization: Bearer` header. `PCLOUD_ACCESS_TOKEN_FILE` takes precedence over `PCLOUD_ACCESS_TOKEN`.
+Token-based, OAuth preferred. `PCLOUD_ACCESS_TOKEN` is sent as an `Authorization: Bearer` header on a GET; `PCLOUD_AUTH_TOKEN` (a pCloud session token) is sent as an `auth` field in a POST body. OAuth wins when both are set. Both honor the `_FILE` convention, which takes precedence.
 
-Username/password authentication was removed in 2.0.0. pCloud returns `result 2297` for accounts with 2FA enabled, and the flow put the session token in the URL. Do not reintroduce it.
+Username/password authentication was removed in 2.0.0. pCloud returns `result 2297` for accounts with 2FA enabled, and the flow put the token in the URL query string. Do not reintroduce it, and never move a credential into a URL — that is the property Layer 3 defends.
 
 ## Tools (15)
 

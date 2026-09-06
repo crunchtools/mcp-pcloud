@@ -16,6 +16,48 @@ def test_missing_token_raises(monkeypatch):
         Config()
 
 
+def test_oauth_is_default_mode():
+    assert get_config().uses_oauth is True
+
+
+def test_session_token_alone_is_accepted(monkeypatch):
+    monkeypatch.delenv("PCLOUD_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("PCLOUD_AUTH_TOKEN", "session-value")
+    config = Config()
+    assert config.uses_oauth is False
+    assert config.auth_token == "session-value"
+
+
+def test_oauth_wins_when_both_present(monkeypatch):
+    monkeypatch.setenv("PCLOUD_AUTH_TOKEN", "session-value")
+    config = Config()
+    assert config.uses_oauth is True
+    assert config.access_token == "test-token-value"
+
+
+def test_session_token_file_supported(monkeypatch, tmp_path):
+    monkeypatch.delenv("PCLOUD_ACCESS_TOKEN", raising=False)
+    secret = tmp_path / "session"
+    secret.write_text("from-session-file\n")
+    monkeypatch.setenv("PCLOUD_AUTH_TOKEN_FILE", str(secret))
+    assert Config().auth_token == "from-session-file"
+
+
+def test_access_token_unavailable_in_session_mode(monkeypatch):
+    monkeypatch.delenv("PCLOUD_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("PCLOUD_AUTH_TOKEN", "session-value")
+    config = Config()
+    with pytest.raises(ConfigurationError, match="not configured"):
+        _ = config.access_token
+
+
+def test_repr_names_auth_mode(monkeypatch):
+    monkeypatch.delenv("PCLOUD_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("PCLOUD_AUTH_TOKEN", "session-value")
+    assert "session" in repr(Config())
+    assert "session-value" not in repr(Config())
+
+
 def test_token_file_takes_precedence(monkeypatch, tmp_path):
     secret = tmp_path / "token"
     secret.write_text("from-file\n")

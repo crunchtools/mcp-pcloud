@@ -24,7 +24,7 @@ import argparse
 
 from .server import mcp
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 __all__ = ["main", "mcp"]
 
 DEFAULT_PORT = 8028

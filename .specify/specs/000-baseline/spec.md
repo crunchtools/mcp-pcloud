@@ -1,7 +1,7 @@
 # Baseline Specification — mcp-pcloud-crunchtools
 
 > **Status:** Implemented
-> **Version:** 2.0.0
+> **Version:** 2.1.0
 
 ## Purpose
 
@@ -9,16 +9,26 @@ Expose a pCloud account through the Model Context Protocol so an agent can brows
 
 ## Authentication
 
-OAuth access token only, sent as `Authorization: Bearer`. Supplied via `PCLOUD_ACCESS_TOKEN` or, preferred, `PCLOUD_ACCESS_TOKEN_FILE`.
+Token-based, OAuth preferred.
 
-Username/password digest authentication was removed in 2.0.0 for two reasons: pCloud rejects it outright on accounts with two-factor authentication enabled (`result 2297`), and it placed the resulting session token in the URL query string, violating Layer 3 of the security model.
+| Kind | Variable | Transport |
+|------|----------|-----------|
+| OAuth access token | `PCLOUD_ACCESS_TOKEN` | `Authorization: Bearer` header, GET |
+| pCloud session token | `PCLOUD_AUTH_TOKEN` | `auth` field in a POST body |
+
+Both accept a `_FILE` form which takes precedence. OAuth wins when both are configured.
+
+Username/password digest authentication was removed in 2.0.0 for two reasons: pCloud rejects it outright on accounts with two-factor authentication enabled (`result 2297`), and it placed the resulting token in the URL query string, violating Layer 3.
+
+Session-token support was added in 2.1.0. pCloud issues session tokens to its own desktop client and rejects them as an `access_token` (`result 2094`), so they cannot be exchanged for OAuth tokens; an account with no provisioned OAuth application would otherwise have no usable credential. The POST body keeps the credential out of the URL, which is the property Layer 3 defends.
 
 ## Environment Variables
 
 | Variable | Required | Default | Purpose |
 |----------|----------|---------|---------|
 | `PCLOUD_ACCESS_TOKEN` | one of | — | OAuth access token |
-| `PCLOUD_ACCESS_TOKEN_FILE` | one of | — | Path to token file; takes precedence |
+| `PCLOUD_AUTH_TOKEN` | one of | — | pCloud session token |
+| `PCLOUD_ACCESS_TOKEN_FILE` / `PCLOUD_AUTH_TOKEN_FILE` | no | — | File form; takes precedence |
 | `PCLOUD_API_HOST` | no | `api.pcloud.com` | `api.pcloud.com` or `eapi.pcloud.com` |
 
 ## Tool Inventory (15)
