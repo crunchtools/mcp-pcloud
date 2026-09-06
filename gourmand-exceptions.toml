@@ -2,3 +2,18 @@
 check = "summary_litter"
 path = "CLAUDE.md"
 justification = "Claude Code project instructions for AI assistant orientation. Constitution Section V lists framework requirements (CLAUDE.md for Claude Code) as an acceptable exception."
+
+[[exceptions]]
+check = "over_abstraction"
+path = "tests/helpers.py"
+justification = "mock_response and text_response are test fixtures that name the two response shapes the pCloud API returns. Inlining them would repeat the httpx.Response construction across seventy-four tests."
+
+[[exceptions]]
+check = "copy_paste_detection"
+path = "src/mcp_pcloud_crunchtools/config.py"
+justification = "access_token and auth_token are deliberately parallel: pCloud treats the OAuth token and the session token as different credential types, carried on different transports. Merging them would erase the distinction the whole dual-credential design rests on."
+
+[[exceptions]]
+check = "copy_paste_detection"
+path = "src/mcp_pcloud_crunchtools/client.py"
+justification = "get_client and get_config are both the four-line lazy-singleton accessor: check the module global, construct if None, return. The duplication is the idiom; hiding it behind a generic obscures which global is being initialised."
