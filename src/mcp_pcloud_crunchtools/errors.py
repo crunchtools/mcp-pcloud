@@ -18,6 +18,25 @@ PCLOUD_ACCESS_DENIED = 2003
 PCLOUD_RATE_LIMIT = 4000
 
 
+MIN_SCRUBBABLE_SECRET_LENGTH = 8
+
+# Credentials that never appear in the environment -- notably the bearer
+# token loaded from the OAuth token store. Scrubbing reads env vars, so a
+# store-loaded token would otherwise pass straight through into an error
+# message. Modules that obtain one register it here.
+_REGISTERED_SECRETS: set[str] = set()
+
+
+def register_secret(value: str) -> None:
+    """Register a runtime-loaded credential so errors never echo it.
+
+    Very short values are ignored: they are unlikely to be real tokens and
+    would corrupt unrelated text.
+    """
+    if value and len(value) >= MIN_SCRUBBABLE_SECRET_LENGTH:
+        _REGISTERED_SECRETS.add(value)
+
+
 def _scrub(message: str) -> str:
     """Remove any configured credential value from a message."""
     safe = message
@@ -25,6 +44,8 @@ def _scrub(message: str) -> str:
         secret = os.environ.get(var, "")
         if secret:
             safe = safe.replace(secret, "***")
+    for secret in _REGISTERED_SECRETS:
+        safe = safe.replace(secret, "***")
     return safe
 
 
@@ -55,13 +76,28 @@ class PCloudApiError(UserError):
 
 
 class AuthenticationError(UserError):
-    """Access token missing, expired, or rejected by pCloud."""
+    """Access token missing, revoked, or rejected by pCloud."""
 
     def __init__(self, detail: str) -> None:
         super().__init__(
             f"pCloud authentication failed: {_scrub(detail)}. "
-            "Set PCLOUD_ACCESS_TOKEN (or PCLOUD_ACCESS_TOKEN_FILE) to a valid "
+            "Run `mcp-pcloud-crunchtools login` to authorize again, or set "
+            "PCLOUD_ACCESS_TOKEN (or PCLOUD_ACCESS_TOKEN_FILE) to a valid "
             "OAuth access token."
+        )
+
+
+class TokenUnavailableError(UserError):
+    """OAuth is configured but no token has been stored yet.
+
+    pCloud tokens do not expire on a timer, so this means the login flow
+    has not been run -- not that a credential aged out.
+    """
+
+    def __init__(self, store_path: str) -> None:
+        super().__init__(
+            f"No pCloud token found at {_truncate(store_path)}. "
+            "Run `mcp-pcloud-crunchtools login` to authorize this app."
         )
 
 

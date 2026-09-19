@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
   "name": "io.github.crunchtools/pcloud",
   "description": "Secure MCP server for pCloud cloud storage",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "repository": {
     "url": "https://github.com/crunchtools/mcp-pcloud",
     "source": "github"
@@ -11,18 +11,35 @@
     {
       "registryType": "pypi",
       "identifier": "mcp-pcloud-crunchtools",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "transport": { "type": "stdio" },
       "environmentVariables": [
         {
-          "name": "PCLOUD_ACCESS_TOKEN",
-          "description": "pCloud OAuth access token",
-          "isRequired": true,
+          "name": "PCLOUD_CLIENT_ID",
+          "description": "pCloud application client id. With PCLOUD_CLIENT_SECRET, run `mcp-pcloud-crunchtools login` once to authorize.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "PCLOUD_CLIENT_SECRET",
+          "description": "pCloud application client secret, paired with PCLOUD_CLIENT_ID",
+          "isRequired": false,
           "isSecret": true
         },
         {
+          "name": "PCLOUD_ACCESS_TOKEN",
+          "description": "pCloud OAuth access token supplied directly, for containers and CI",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "PCLOUD_TOKEN_STORE_PATH",
+          "description": "Where the token obtained by `login` is cached (default: ~/.config/mcp-pcloud/tokens.json)",
+          "isRequired": false
+        },
+        {
           "name": "PCLOUD_API_HOST",
-          "description": "api.pcloud.com (default) or eapi.pcloud.com for EU accounts",
+          "description": "api.pcloud.com or eapi.pcloud.com; normally discovered during login",
           "isRequired": false
         }
       ]

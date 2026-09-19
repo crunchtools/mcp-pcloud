@@ -6,6 +6,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-09-19
+
+### Added
+- OAuth 2.0 authorization code flow. `PCLOUD_CLIENT_ID` + `PCLOUD_CLIENT_SECRET`
+  select an application, and `mcp-pcloud-crunchtools login` obtains the bearer
+  token: localhost callback, constant-time `state` check, code exchanged over
+  POST so the client secret never enters a URL.
+- Token store at `~/.config/mcp-pcloud/tokens.json`, written 0600, overridable
+  with `PCLOUD_TOKEN_STORE_PATH`.
+- Region auto-discovery. The authorize redirect reports the account's data
+  center; the hostname is validated against the known endpoints and persisted
+  with the token, so `PCLOUD_API_HOST` no longer has to be set by hand.
+- `TokenUnavailableError`, distinguishing "login has not been run" from
+  "pCloud rejected the credential".
+- `errors.register_secret()`, so a token loaded from the store is scrubbed from
+  error messages even though it never appears in the environment.
+
+### Changed
+- `serve` is now an explicit subcommand; running with no subcommand still
+  serves, so existing invocations are unaffected.
+- Authentication modes are ranked: an OAuth application outranks a static
+  access token, which outranks a session token. Both older modes are retained.
+- Aligned the pre-commit `ruff` pin with the version the project actually
+  builds against; the two had drifted far enough to disagree on lint results.
+
 ## [2.1.0] - 2026-09-05
 
 This changelog starts here (RT #1484). The entry below was reconstructed from the
