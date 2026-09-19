@@ -19,6 +19,9 @@ Environment Variables:
     PCLOUD_AUTH_TOKEN: A pCloud desktop-client session token. Last resort
         -- it is the account itself and cannot be revoked independently.
     PCLOUD_TOKEN_STORE_PATH: Override where the token is cached.
+    PCLOUD_OAUTH_REDIRECT_URI: Where pCloud sends the browser after
+        approval. Needed when the server runs behind a reverse proxy, where
+        localhost is not reachable from the browser.
     PCLOUD_API_HOST: Optional. api.pcloud.com or eapi.pcloud.com. Normally
         discovered automatically during login.
 
@@ -37,7 +40,7 @@ import sys
 
 from .server import mcp
 
-__version__ = "2.3.0"
+__version__ = "2.4.0"
 __all__ = ["main", "mcp"]
 
 DEFAULT_PORT = 8028
@@ -46,7 +49,7 @@ DEFAULT_CALLBACK_PORT = 8029
 
 def _run_login(args: argparse.Namespace) -> None:
     """Handle the login subcommand."""
-    from .auth import TokenStore, run_login_flow
+    from .auth import TokenStore, run_login_flow, run_manual_login
     from .config import CLIENT_ID_VAR, CLIENT_SECRET_VAR, _read_credential
     from .errors import UserError
 
@@ -69,13 +72,21 @@ def _run_login(args: argparse.Namespace) -> None:
     from pydantic import SecretStr
 
     try:
-        run_login_flow(
-            client_id=client_id,
-            client_secret=SecretStr(client_secret),
-            token_store=TokenStore(),
-            callback_port=args.port,
-            open_browser=not args.no_browser,
-        )
+        if args.manual:
+            run_manual_login(
+                client_id=client_id,
+                client_secret=SecretStr(client_secret),
+                token_store=TokenStore(),
+            )
+        else:
+            run_login_flow(
+                client_id=client_id,
+                client_secret=SecretStr(client_secret),
+                token_store=TokenStore(),
+                callback_port=args.port,
+                open_browser=not args.no_browser,
+                redirect_uri=args.redirect_uri,
+            )
     except UserError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
@@ -108,6 +119,25 @@ def main() -> None:
         "--no-browser",
         action="store_true",
         help="Print the authorize URL instead of opening a browser",
+    )
+    login_parser.add_argument(
+        "--manual",
+        action="store_true",
+        help=(
+            "Do not listen for a callback. pCloud displays the authorization "
+            "code and you paste it in. Needs no open port and no publicly "
+            "reachable URL, which is what makes it work on a headless host."
+        ),
+    )
+    login_parser.add_argument(
+        "--redirect-uri",
+        default=None,
+        help=(
+            "Where pCloud sends the browser after approval. Defaults to "
+            "http://localhost:<port>/callback, which only works when the "
+            "browser is on this machine. Behind a reverse proxy, pass the "
+            "public callback URL (or set PCLOUD_OAUTH_REDIRECT_URI)."
+        ),
     )
 
     serve_parser = subparsers.add_parser("serve", help="Run the MCP server")

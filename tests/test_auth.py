@@ -341,3 +341,114 @@ class TestTokenResponseHandling:
         with patch("mcp_pcloud_crunchtools.auth.secrets.compare_digest", return_value=True):
             data, _, _ = TestLoginFlow._run(tmp_path, server)
         assert not hasattr(data, "expires_at")
+
+
+class TestAuthorizeUrl:
+    """pCloud makes redirect_uri optional for the code flow."""
+
+    def test_redirect_uri_included_when_given(self):
+        from mcp_pcloud_crunchtools.auth import _build_authorize_url
+
+        url = _build_authorize_url("cid", "st", "https://example.com/callback")
+        assert "redirect_uri=https%3A%2F%2Fexample.com%2Fcallback" in url
+        assert "response_type=code" in url
+
+    def test_redirect_uri_omitted_entirely_when_none(self):
+        """Omitting it is what makes pCloud display the code instead."""
+        from mcp_pcloud_crunchtools.auth import _build_authorize_url
+
+        url = _build_authorize_url("cid", "st", None)
+        assert "redirect_uri" not in url
+        assert "client_id=cid" in url
+
+
+class TestManualLogin:
+    """Paste-the-code flow for headless hosts."""
+
+    @staticmethod
+    def _run(tmp_path, typed, payload=None):
+        from mcp_pcloud_crunchtools.auth import run_manual_login
+
+        store = _store(tmp_path)
+        captured = {}
+
+        def fake_post(_self, url, data=None, **_kw):
+            captured["url"] = url
+            captured["data"] = data
+            return httpx.Response(
+                200,
+                json=payload or {"result": 0, "access_token": "tok", "uid": 99},
+                request=httpx.Request("POST", url),
+            )
+
+        with (
+            patch("builtins.input", return_value=typed),
+            patch.object(httpx.Client, "post", fake_post),
+        ):
+            data = run_manual_login(
+                client_id="cid",
+                client_secret=SecretStr("csec"),
+                token_store=store,
+            )
+        return data, store, captured
+
+    def test_pasted_code_is_exchanged_and_stored(self, tmp_path):
+        data, store, captured = self._run(tmp_path, "the-code")
+        assert data.access_token.get_secret_value() == "tok"
+        assert data.uid == 99
+        assert store.load() is not None
+        assert captured["data"]["code"] == "the-code"
+
+    def test_no_redirect_uri_is_sent_on_exchange(self, tmp_path):
+        _, _, captured = self._run(tmp_path, "the-code")
+        assert "redirect_uri" not in captured["data"]
+
+    def test_secret_stays_out_of_the_url(self, tmp_path):
+        _, _, captured = self._run(tmp_path, "the-code")
+        assert "csec" not in captured["url"]
+        assert captured["data"]["client_secret"] == "csec"
+
+    def test_empty_code_is_rejected(self, tmp_path):
+        with pytest.raises(AuthenticationError, match="No authorization code"):
+            self._run(tmp_path, "   ")
+
+    def test_rejected_code_surfaces_the_result(self, tmp_path):
+        with pytest.raises(AuthenticationError, match="2093"):
+            self._run(tmp_path, "bad", payload={"result": 2093, "error": "Invalid code"})
+
+    def test_non_interactive_stdin_is_actionable(self, tmp_path):
+        from mcp_pcloud_crunchtools.auth import run_manual_login
+
+        with (
+            patch("builtins.input", side_effect=EOFError),
+            pytest.raises(AuthenticationError, match="interactive terminal"),
+        ):
+            run_manual_login("cid", SecretStr("csec"), _store(tmp_path))
+
+
+class TestRedirectUriOverride:
+    """Behind a proxy, localhost is not reachable from the browser."""
+
+    def test_env_var_overrides_localhost_default(self, tmp_path, monkeypatch):
+        from mcp_pcloud_crunchtools import auth as auth_mod
+
+        monkeypatch.setenv("PCLOUD_OAUTH_REDIRECT_URI", "https://mcp-pcloud.example.com/callback")
+        server = _fake_callback(hostname=US_API_HOST)
+        captured = {}
+
+        def fake_post(_self, url, data=None, **_kw):
+            captured["data"] = data
+            return httpx.Response(
+                200,
+                json={"result": 0, "access_token": "t"},
+                request=httpx.Request("POST", url),
+            )
+
+        with (
+            patch.object(auth_mod, "_CallbackServer", lambda *_a: server),
+            patch.object(auth_mod.secrets, "compare_digest", return_value=True),
+            patch.object(httpx.Client, "post", fake_post),
+        ):
+            auth_mod.run_login_flow("cid", SecretStr("csec"), _store(tmp_path), open_browser=False)
+
+        assert captured["data"]["redirect_uri"] == "https://mcp-pcloud.example.com/callback"
