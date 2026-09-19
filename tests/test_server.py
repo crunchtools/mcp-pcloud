@@ -23,19 +23,21 @@ EXPECTED_TOOLS = {
 }
 
 
+# FastMCP 4 replaced the dict-returning get_tools() with list_tools(),
+# which returns a sequence of Tool objects.
 async def test_tool_count():
-    tools = await mcp.get_tools()
+    tools = await mcp.list_tools()
     assert len(tools) == EXPECTED_TOOL_COUNT
 
 
 async def test_tool_names():
-    tools = await mcp.get_tools()
-    assert set(tools) == EXPECTED_TOOLS
+    tools = await mcp.list_tools()
+    assert {tool.name for tool in tools} == EXPECTED_TOOLS
 
 
 async def test_every_tool_has_a_description():
-    tools = await mcp.get_tools()
-    assert all(tool.description for tool in tools.values())
+    tools = await mcp.list_tools()
+    assert all(tool.description for tool in tools)
 
 
 async def test_tools_module_exports_match_registrations():
