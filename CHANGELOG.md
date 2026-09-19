@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-09-19
+
+### Security
+- Upgraded FastMCP from 2.14.7 to 4.x, which resolves two advisories that had
+  no fix available inside the previous `>=2.0,<3.0` pin (2.14.7 was already the
+  newest 2.x). Both are patched in FastMCP 3.2.0:
+  - **CVE-2026-32871** (critical) — SSRF and path traversal in the OpenAPI provider
+  - **CVE-2026-27124** (high) — missing consent verification in the OAuth proxy callback
+
+  Neither was reachable from this server, which uses plain `FastMCP()` with
+  `@mcp.tool()` and neither the OpenAPI provider nor the OAuth proxy. The
+  upgrade removes the vulnerable code from the image regardless.
+
+### Changed
+- Dependency pin moved from `fastmcp>=2.0,<3.0` to `fastmcp>=4.0,<5.0`.
+- Tests updated for the FastMCP 4 API: `get_tools()`, which returned a dict,
+  was replaced by `list_tools()`, which returns a sequence of `Tool` objects.
+  Only tests called it -- `server.py` does not, so the server itself needed no
+  change.
+
+No change to the tool surface, environment variables, or CLI: the same 15
+tools, the same configuration, the same commands.
+
 ## [2.2.0] - 2026-09-19
 
 ### Added
