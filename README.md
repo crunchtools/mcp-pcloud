@@ -4,7 +4,7 @@
 
 Secure MCP server for [pCloud](https://www.pcloud.com/) cloud storage. Browse, search, read, and manage files and folders in a pCloud account through the Model Context Protocol.
 
-Authentication is token-based, OAuth preferred. pCloud accounts with two-factor authentication enabled cannot be accessed with a username and password, and password-derived tokens travel in the URL query string. This server never derives a credential from a password and never puts one in a URL.
+Authentication is OAuth 2.0. Register an application, run `mcp-pcloud-crunchtools login` once, and the server manages the bearer token from there. pCloud accounts with two-factor authentication enabled cannot be accessed with a username and password, and password-derived tokens travel in the URL query string. This server never derives a credential from a password and never puts one in a URL — the client secret is only ever sent in a POST body.
 
 ## Installation
 
@@ -21,34 +21,65 @@ podman run quay.io/crunchtools/mcp-pcloud
 
 ## Configuration
 
+Register an application at [pCloud my_apps](https://docs.pcloud.com/my_apps/), add `http://localhost:8029/callback` to its redirect URIs, then:
+
+```bash
+export PCLOUD_CLIENT_ID=your_client_id
+export PCLOUD_CLIENT_SECRET=your_client_secret
+
+mcp-pcloud-crunchtools login
+```
+
+`login` opens a browser, you approve the app, and the resulting bearer token is cached at `~/.config/mcp-pcloud/tokens.json` (0600). That is the whole setup. **pCloud access tokens do not expire** — its `oauth2_token` endpoint returns no `refresh_token` and no `expires_in` — so there is no renewal cycle and nothing to rotate on a schedule. The token stays valid until you revoke the app from the pCloud console, which does not touch your account password or any other session.
+
+The login flow also records which data center holds the account, so the region is never configured by hand.
+
+### Variables
+
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `PCLOUD_ACCESS_TOKEN` | one of | OAuth access token — sent as an `Authorization: Bearer` header |
-| `PCLOUD_AUTH_TOKEN` | one of | pCloud session token — sent in a POST body |
-| `PCLOUD_API_HOST` | no | `api.pcloud.com` (default) or `eapi.pcloud.com` for EU accounts |
+| `PCLOUD_CLIENT_ID` | preferred | pCloud application client id |
+| `PCLOUD_CLIENT_SECRET` | preferred | pCloud application client secret |
+| `PCLOUD_ACCESS_TOKEN` | alternative | A bearer token supplied directly, for containers and CI |
+| `PCLOUD_AUTH_TOKEN` | last resort | A pCloud desktop-client session token |
+| `PCLOUD_TOKEN_STORE_PATH` | no | Where `login` caches the token (default `~/.config/mcp-pcloud/tokens.json`) |
+| `PCLOUD_API_HOST` | no | `api.pcloud.com` or `eapi.pcloud.com`; normally discovered during login |
 
-At least one credential is required. When both are set, the OAuth token wins.
+Modes are selected in that order: a client id *and* secret together select OAuth application mode and outrank everything else; otherwise a static access token is used; a session token is the last resort.
 
-Every credential variable also accepts a `_FILE` form (`PCLOUD_ACCESS_TOKEN_FILE`, `PCLOUD_AUTH_TOKEN_FILE`) pointing at a file that holds the value. The `_FILE` form takes precedence and is preferred for container deployments — it works with podman secrets, Kubernetes secret volumes, and systemd `LoadCredential=`. The server warns (but does not fail) if the file is group- or world-readable.
+Every credential variable also accepts a `_FILE` form (`PCLOUD_CLIENT_SECRET_FILE`, `PCLOUD_ACCESS_TOKEN_FILE`, …) pointing at a file that holds the value. The `_FILE` form takes precedence and is preferred for container deployments — it works with podman secrets, Kubernetes secret volumes, and systemd `LoadCredential=`. The server warns (but does not fail) if the file is group- or world-readable.
 
-### Which token do I have?
+### Headless hosts
 
-Create an OAuth access token at [pCloud my_apps](https://docs.pcloud.com/my_apps/). If you only have the token the pCloud desktop client stores, that is a *session* token: pCloud rejects it as an `access_token` with `result 2094`, so set it as `PCLOUD_AUTH_TOKEN` instead. Both carry the same authority over the account — protect them identically.
+`login` needs a browser to reach pCloud and a local port to receive the redirect. On a server, forward the callback port and run it over SSH:
+
+```bash
+ssh -L 8029:localhost:8029 yourhost
+mcp-pcloud-crunchtools login --no-browser    # prints the URL; open it locally
+```
+
+Alternatively, run `login` on a workstation and copy the resulting `tokens.json` to the host.
+
+### Which credential do I have?
+
+If you only have the token the pCloud desktop client stores, that is a *session* token, not an OAuth token: pCloud rejects it as an `access_token` with `result 2094`, so set it as `PCLOUD_AUTH_TOKEN`. Prefer an application: a session token *is* the account, carries no scope, and cannot be revoked independently of the client that issued it.
 
 ### Claude Code
 
 ```bash
 claude mcp add mcp-pcloud-crunchtools \
-    --env PCLOUD_ACCESS_TOKEN=your_token_here \
+    --env PCLOUD_CLIENT_ID=your_client_id \
+    --env PCLOUD_CLIENT_SECRET=your_client_secret \
     -- uvx mcp-pcloud-crunchtools
 ```
 
 ## Transports
 
 ```bash
+mcp-pcloud-crunchtools login                              # authorize once
 mcp-pcloud-crunchtools                                    # stdio (default)
-mcp-pcloud-crunchtools --transport sse --port 8028
-mcp-pcloud-crunchtools --transport streamable-http --port 8028
+mcp-pcloud-crunchtools serve --transport sse --port 8028
+mcp-pcloud-crunchtools serve --transport streamable-http --port 8028
 ```
 
 ## Tools
@@ -65,7 +96,9 @@ mcp-pcloud-crunchtools --transport streamable-http --port 8028
 
 ## Security
 
-- OAuth token held as a Pydantic `SecretStr`, never logged and scrubbed from error messages
+- Tokens and the client secret held as Pydantic `SecretStr`, never logged and scrubbed from error messages, including a token loaded from the store rather than the environment
+- `state` parameter checked with a constant-time comparison on the OAuth callback; the redirect's `hostname` is validated against the known pCloud regions before it is used
+- Token store written 0600 via `os.open`, never through a world-readable temporary file
 - Token sent in an `Authorization` header, never in a URL
 - All arguments validated by Pydantic models with `extra="forbid"`; paths must be absolute and may not contain `..` traversal segments
 - TLS certificate validation always on, 30s request timeout, 10 MB response ceiling
