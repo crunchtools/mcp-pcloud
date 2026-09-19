@@ -10,4 +10,3 @@ build/
 .gourmand-cache/
 .coverage
 htmlcov/
-uv.lock
