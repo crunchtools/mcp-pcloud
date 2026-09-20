@@ -6,6 +6,34 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-09-19
+
+### Added
+- Browser authorization driven entirely through MCP, with nothing copied by
+  hand. Three tools:
+  - `pcloud_auth_status` — whether the server holds a usable credential, and
+    if not, what is missing. Verifies a stored token against pCloud rather
+    than assuming its presence means it works.
+  - `pcloud_auth_start` — returns the URL to open. The user approves in a
+    browser; pCloud redirects back and the token is stored server-side.
+  - `pcloud_auth_result` — what the last redirect did, for when status alone
+    is not enough to tell whether one ever arrived.
+- A `/callback` route on the server's own HTTP port, registered with FastMCP's
+  `custom_route`. This is what removes the copy-and-paste step: the exchange
+  happens before the page renders. No second listener and no extra port.
+- `PCLOUD_OAUTH_REDIRECT_URI` is now read by the server as well as the CLI,
+  since the route needs to know the public URL pCloud was told to use.
+
+### Security
+- The CSRF `state` outlives the tool call in a single-slot holder that expires
+  after 10 minutes, is single-use, and is superseded rather than duplicated
+  when a second authorization starts — two outstanding valid states would be
+  two ways in.
+- The region reported by a redirect is honoured only when it is a known pCloud
+  endpoint, so a redirect cannot aim the client at an arbitrary host.
+
+Tool count is now 18.
+
 ## [2.4.0] - 2026-09-19
 
 ### Added

@@ -25,6 +25,7 @@ import logging
 import os
 import secrets
 import stat
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -43,6 +44,7 @@ DEFAULT_TOKEN_STORE_PATH = Path.home() / ".config" / "mcp-pcloud" / "tokens.json
 DEFAULT_CALLBACK_PORT = 8029
 TOKEN_STORE_PATH_VAR = "PCLOUD_TOKEN_STORE_PATH"
 REDIRECT_URI_VAR = "PCLOUD_OAUTH_REDIRECT_URI"
+PENDING_LOGIN_TTL_SECONDS = 600
 
 OAUTH_AUTHORIZE_URL = "https://my.pcloud.com/oauth2/authorize"
 
@@ -189,7 +191,7 @@ class _CallbackServer(HTTPServer):
     callback_hostname: str | None = None
 
 
-def _build_authorize_url(client_id: str, state: str, redirect_uri: str | None) -> str:
+def build_authorize_url(client_id: str, state: str, redirect_uri: str | None) -> str:
     """Build the pCloud authorize URL.
 
     Omitting ``redirect_uri`` is deliberate and supported: pCloud then
@@ -285,7 +287,7 @@ def run_manual_login(
     Raises:
         AuthenticationError: If no code is supplied or pCloud rejects it.
     """
-    auth_url = _build_authorize_url(client_id, secrets.token_urlsafe(32), None)
+    auth_url = build_authorize_url(client_id, secrets.token_urlsafe(32), None)
     print("Open this URL, approve the app, and pCloud will show you a code:")
     print(f"\n  {auth_url}\n")
 
@@ -341,7 +343,7 @@ def run_login_flow(
         redirect_uri = f"http://localhost:{callback_port}/callback"
 
     state = secrets.token_urlsafe(32)
-    auth_url = _build_authorize_url(client_id, state, redirect_uri)
+    auth_url = build_authorize_url(client_id, state, redirect_uri)
 
     server = _CallbackServer(("127.0.0.1", callback_port), _CallbackHandler)
 
@@ -373,3 +375,91 @@ def run_login_flow(
         client_id, client_secret, server.callback_code, api_host, redirect_uri
     )
     return _save_and_report(token_store, token_data)
+
+
+class PendingLogin:
+    """The one-shot state for an in-flight browser authorization.
+
+    The MCP tool that hands out the authorize URL and the HTTP route that
+    receives pCloud's redirect run in the same process but not in the same
+    call, so the CSRF state has to outlive the tool call. It is deliberately
+    single-slot: a second `auth_start` supersedes the first rather than
+    leaving two valid states outstanding.
+    """
+
+    def __init__(self) -> None:
+        """Start with no authorization in flight."""
+        self._state: str | None = None
+        self._issued_at: float = 0.0
+        self._outcome: str | None = None
+
+    def issue(self) -> str:
+        """Mint and remember a fresh CSRF state, discarding any previous one."""
+        self._state = secrets.token_urlsafe(32)
+        self._issued_at = time.monotonic()
+        self._outcome = None
+        return self._state
+
+    def verify(self, state: str | None) -> None:
+        """Check a redirect's state against the outstanding one.
+
+        Raises:
+            AuthenticationError: If nothing is in flight, the window has
+                closed, or the value does not match.
+        """
+        if self._state is None:
+            raise AuthenticationError("No authorization is in progress")
+        if time.monotonic() - self._issued_at > PENDING_LOGIN_TTL_SECONDS:
+            self._state = None
+            raise AuthenticationError("Authorization expired; start it again")
+        if not secrets.compare_digest(state or "", self._state):
+            raise AuthenticationError("State parameter mismatch -- possible CSRF")
+        self._state = None
+
+    @property
+    def outcome(self) -> str | None:
+        """Return the outcome of the last completed redirect, if any."""
+        return self._outcome
+
+    def record(self, message: str) -> None:
+        """Record the outcome so a follow-up tool call can report it."""
+        self._outcome = message
+
+
+_pending = PendingLogin()
+
+
+def get_pending_login() -> PendingLogin:
+    """Return the process-wide pending-login slot."""
+    return _pending
+
+
+def complete_login(
+    client_id: str,
+    client_secret: SecretStr,
+    token_store: TokenStore,
+    *,
+    code: str,
+    state: str | None,
+    hostname: str | None,
+    redirect_uri: str,
+) -> TokenData:
+    """Finish a browser authorization from the redirect's parameters.
+
+    Raises:
+        AuthenticationError: If the state does not verify or pCloud rejects
+            the authorization code.
+    """
+    _pending.verify(state)
+
+    # Honour the reported region only when it is a known pCloud endpoint: a
+    # redirect must not be able to aim the client at an arbitrary host.
+    api_host = hostname or US_API_HOST
+    if api_host not in VALID_API_HOSTS:
+        logger.warning("Ignoring unrecognized callback hostname %r", api_host)
+        api_host = US_API_HOST
+
+    token_data = _exchange_code(client_id, client_secret, code, api_host, redirect_uri)
+    token_store.save(token_data)
+    logger.info("Token stored from browser authorization (region %s)", api_host)
+    return token_data
