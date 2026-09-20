@@ -66,7 +66,7 @@ max-branches = 10
 max-statements = 50
 
 [tool.ruff.lint.mccabe]
-max-complexity = 35
+max-complexity = 10
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "ARG002"]
