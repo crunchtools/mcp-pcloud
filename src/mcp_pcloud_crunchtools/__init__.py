@@ -48,7 +48,14 @@ DEFAULT_CALLBACK_PORT = 8029
 
 
 def _run_login(args: argparse.Namespace) -> None:
-    """Handle the login subcommand."""
+    """Handle the login subcommand.
+
+    Raises:
+        UserError: If required credentials are missing or the OAuth flow
+            itself fails. Left for ``main`` to report and translate into
+            an exit code, so this function stays callable (and testable)
+            without terminating the process itself.
+    """
     from .auth import TokenStore, run_login_flow, run_manual_login
     from .config import CLIENT_ID_VAR, CLIENT_SECRET_VAR, _read_credential
     from .errors import UserError
@@ -60,36 +67,30 @@ def _run_login(args: argparse.Namespace) -> None:
         # interpolated from CLIENT_ID_VAR/CLIENT_SECRET_VAR: a static
         # analyzer cannot tell a secret-named constant from a secret, and
         # reads the interpolation as logging one in clear text.
-        print(
-            "Error: PCLOUD_CLIENT_ID and PCLOUD_CLIENT_SECRET must both be "
+        raise UserError(
+            "PCLOUD_CLIENT_ID and PCLOUD_CLIENT_SECRET must both be "
             "set to log in.\nRegister an application at "
             "https://docs.pcloud.com/my_apps/ and add the redirect URI\n"
-            f"  http://localhost:{args.port}/callback",
-            file=sys.stderr,
+            f"  http://localhost:{args.port}/callback"
         )
-        sys.exit(1)
 
     from pydantic import SecretStr
 
-    try:
-        if args.manual:
-            run_manual_login(
-                client_id=client_id,
-                client_secret=SecretStr(client_secret),
-                token_store=TokenStore(),
-            )
-        else:
-            run_login_flow(
-                client_id=client_id,
-                client_secret=SecretStr(client_secret),
-                token_store=TokenStore(),
-                callback_port=args.port,
-                open_browser=not args.no_browser,
-                redirect_uri=args.redirect_uri,
-            )
-    except UserError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+    if args.manual:
+        run_manual_login(
+            client_id=client_id,
+            client_secret=SecretStr(client_secret),
+            token_store=TokenStore(),
+        )
+    else:
+        run_login_flow(
+            client_id=client_id,
+            client_secret=SecretStr(client_secret),
+            token_store=TokenStore(),
+            callback_port=args.port,
+            open_browser=not args.no_browser,
+            redirect_uri=args.redirect_uri,
+        )
 
 
 def _run_server(args: argparse.Namespace) -> None:
@@ -163,6 +164,12 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "login":
-        _run_login(args)
+        from .errors import UserError
+
+        try:
+            _run_login(args)
+        except UserError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
     else:
         _run_server(args)
