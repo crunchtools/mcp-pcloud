@@ -51,7 +51,21 @@ Every credential variable also accepts a `_FILE` form (`PCLOUD_CLIENT_SECRET_FIL
 
 ### Headless hosts
 
-`login` needs a browser to reach pCloud and a local port to receive the redirect. On a server, forward the callback port and run it over SSH:
+A container has no browser, and `login` cannot run inside one. Prefer
+authorizing over MCP: call `pcloud_auth_start`, open the URL it returns,
+approve, and pCloud redirects to the server's own `/callback` route, which
+completes the exchange. Nothing is copied by hand and no port is forwarded.
+This needs `PCLOUD_OAUTH_REDIRECT_URI` set to a URL that reaches `/callback`
+from your browser, and that same URL registered in the pCloud application.
+
+Without a reachable callback URL, `login --manual` authorizes with no listener
+at all: pCloud displays the code and you paste it back.
+
+```bash
+mcp-pcloud-crunchtools login --manual
+```
+
+Failing both, forward the callback port and run `login` over SSH:
 
 ```bash
 ssh -L 8029:localhost:8029 yourhost
@@ -91,6 +105,8 @@ mcp-pcloud-crunchtools serve --transport streamable-http --port 8028
 **Links** — `pcloud_get_file_link`, `pcloud_create_public_link`
 
 **Search & account** — `pcloud_search`, `pcloud_get_user_info`
+
+**Authorization** — `pcloud_auth_status`, `pcloud_auth_start`, `pcloud_auth_result`
 
 `pcloud_create_public_link` publishes a file to anyone holding the returned URL, and `pcloud_get_file_link` returns a time-limited direct download URL. Treat both as credential-issuing operations when building tool allowlists.
 

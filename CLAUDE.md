@@ -38,7 +38,7 @@ Username/password authentication was removed in 2.0.0. pCloud returns `result 22
 
 A token loaded from the store is not in the environment, so `errors._scrub` cannot find it by variable name. `TokenStore` calls `errors.register_secret()` on load and save. Any future credential that does not arrive via an env var must do the same.
 
-## Tools (15)
+## Tools (18)
 
 Folders: `pcloud_list_folder`, `pcloud_create_folder`, `pcloud_delete_folder`, `pcloud_rename_folder`, `pcloud_copy_folder`
 
@@ -47,6 +47,8 @@ Files: `pcloud_get_file_info`, `pcloud_delete_file`, `pcloud_rename_file`, `pclo
 Links: `pcloud_get_file_link`, `pcloud_create_public_link`
 
 Search and account: `pcloud_search`, `pcloud_get_user_info`
+
+Authorization: `pcloud_auth_status`, `pcloud_auth_start`, `pcloud_auth_result`
 
 ## Quality Gates
 
@@ -64,10 +66,32 @@ The gourmand container's entrypoint is already `gourmand`, so pass flags only. `
 
 Update `tools/<category>.py`, `tools/__init__.py`, `server.py`, `tests/test_tools.py`, and the counts in `tests/test_server.py`. Keep the version in sync across `pyproject.toml`, `__init__.py`, `server.json`, and the `Containerfile` label.
 
-## Deployment
+Update the tool listing above too. No gate reads prose, so a stale count here survives a fully green pipeline.
 
-Port 8028, streamable-http, containerized on lotor behind the Trentina gateway.
+## Authorizing a Container
 
-The container is headless, so `login` cannot run inside it. Authorize with the callback port forwarded (`ssh -L 8029:localhost:8029 lotor`) and point `PCLOUD_TOKEN_STORE_PATH` at a mounted path so the token survives `--rm`.
+A container has no browser, so the `login` subcommand cannot run inside one.
+Authorize it over MCP instead: `pcloud_auth_start` returns a URL, the user
+approves it in their own browser, and pCloud redirects to the server's
+`/callback` route, which completes the exchange. Nothing is copied by hand.
 
-The Trentina gateway deliberately withholds `pcloud_delete_file` and `pcloud_delete_folder`, exposing 13 of the 15 registered tools. That is policy, not an oversight: agents do not delete files in pCloud. Do not "fix" the gap by adding them to the allowlist.
+Two things have to agree for that redirect to arrive:
+
+- `PCLOUD_OAUTH_REDIRECT_URI` must be a URL that reaches this server's
+  `/callback` route from the user's browser. Behind a reverse proxy, that is
+  the public https URL, not localhost.
+- The same URL must be registered in the pCloud application's *Redirect URIs*
+  field. pCloud refuses an unregistered one with `redirect_uri' is not
+  autorized`.
+
+Proxy only `/callback`. The MCP endpoint should not be reachable by that route.
+
+Point `PCLOUD_TOKEN_STORE_PATH` at a mounted path so the token survives `--rm`.
+
+## Exposing a Subset of Tools
+
+This server registers every tool it implements, including the destructive
+ones, and does not decide who may call them. Restricting an agent to a subset
+is the deployment's job -- an MCP gateway allowlist, or the client's own
+permissions. Withholding a tool there is not a bug in this server, and the
+answer to a missing tool is never to widen the server.
