@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-09-19
+
+### Added
+- `login --manual`: authorize without a callback listener. No `redirect_uri` is
+  sent, so pCloud displays the authorization code on the page and you paste it
+  in. Needs no open port and no publicly reachable URL, which is what makes it
+  usable from a container on a headless host. pCloud documents `redirect_uri`
+  as optional for the code flow precisely for this case.
+- `login --redirect-uri` and `PCLOUD_OAUTH_REDIRECT_URI`: override where pCloud
+  sends the browser after approval. The default, `http://localhost:<port>/callback`,
+  only works when the browser runs on the same machine as the server. Behind a
+  reverse proxy, the public callback URL goes here; the listener still binds
+  locally and the proxy bridges the two.
+
+### Changed
+- `auth.py` split into `_build_authorize_url`, `_resolve_api_host`,
+  `_exchange_code` and `_save_and_report`, shared by both login paths. The
+  region-validation rule is now in one place rather than inline: a hostname
+  reported by a redirect is honoured only if it is a known pCloud endpoint.
+
 ## [2.3.0] - 2026-09-19
 
 ### Security

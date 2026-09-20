@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_TOKEN_STORE_PATH = Path.home() / ".config" / "mcp-pcloud" / "tokens.json"
 DEFAULT_CALLBACK_PORT = 8029
 TOKEN_STORE_PATH_VAR = "PCLOUD_TOKEN_STORE_PATH"
+REDIRECT_URI_VAR = "PCLOUD_OAUTH_REDIRECT_URI"
 
 OAUTH_AUTHORIZE_URL = "https://my.pcloud.com/oauth2/authorize"
 
@@ -188,12 +189,128 @@ class _CallbackServer(HTTPServer):
     callback_hostname: str | None = None
 
 
+def _build_authorize_url(client_id: str, state: str, redirect_uri: str | None) -> str:
+    """Build the pCloud authorize URL.
+
+    Omitting ``redirect_uri`` is deliberate and supported: pCloud then
+    displays the authorization code on the page instead of redirecting,
+    which is the only workable flow on a host with no browser and no
+    publicly reachable callback.
+    """
+    params: dict[str, str] = {
+        "client_id": client_id,
+        "response_type": "code",
+        "state": state,
+    }
+    if redirect_uri:
+        params["redirect_uri"] = redirect_uri
+    return f"{OAUTH_AUTHORIZE_URL}?{urlencode(params)}"
+
+
+def _exchange_code(
+    client_id: str,
+    client_secret: SecretStr,
+    code: str,
+    api_host: str,
+    redirect_uri: str | None = None,
+) -> TokenData:
+    """Trade an authorization code for a bearer token.
+
+    The client secret travels in the POST body, never in the URL.
+    """
+    form = {
+        "client_id": client_id,
+        "client_secret": client_secret.get_secret_value(),
+        "code": code,
+    }
+    if redirect_uri:
+        form["redirect_uri"] = redirect_uri
+
+    try:
+        with httpx.Client(timeout=HTTP_TIMEOUT, verify=True) as http:
+            response = http.post(f"https://{api_host}/oauth2_token", data=form)
+            response.raise_for_status()
+            payload = response.json()
+    except httpx.HTTPStatusError as exc:
+        raise AuthenticationError(
+            f"Token exchange failed with HTTP {exc.response.status_code}"
+        ) from exc
+    except (httpx.HTTPError, ValueError) as exc:
+        raise AuthenticationError(f"Token exchange failed: {exc}") from exc
+
+    # pCloud signals failure with a non-zero ``result`` field rather than an
+    # HTTP status, so a 200 response still has to be inspected.
+    result_code = int(payload.get("result", PCLOUD_OK))
+    if result_code != PCLOUD_OK:
+        raise AuthenticationError(
+            f"pCloud rejected the authorization code "
+            f"(result {result_code}): {payload.get('error', '')}"
+        )
+
+    access_token = payload.get("access_token")
+    if not access_token:
+        raise AuthenticationError("Token response contained no access_token")
+
+    uid_raw = payload.get("uid")
+    return TokenData(
+        access_token=SecretStr(str(access_token)),
+        api_host=api_host,
+        uid=int(uid_raw) if uid_raw is not None else None,
+    )
+
+
+def _save_and_report(token_store: TokenStore, token_data: TokenData) -> TokenData:
+    """Persist the token and print a summary that names no credential."""
+    token_store.save(token_data)
+    print(f"\nLogin successful. Token saved to {token_store.path}")
+    print(f"Region: {token_data.api_host}")
+    if token_data.uid is not None:
+        print(f"pCloud uid: {token_data.uid}")
+    return token_data
+
+
+def run_manual_login(
+    client_id: str,
+    client_secret: SecretStr,
+    token_store: TokenStore,
+    api_host: str = US_API_HOST,
+) -> TokenData:
+    """Authorize without a callback, by pasting the code pCloud displays.
+
+    No ``redirect_uri`` is sent, so pCloud shows the authorization code on
+    the page rather than redirecting. Nothing listens on a port and no
+    public URL is required, which is what makes this usable from a
+    container on a headless host.
+
+    Raises:
+        AuthenticationError: If no code is supplied or pCloud rejects it.
+    """
+    auth_url = _build_authorize_url(client_id, secrets.token_urlsafe(32), None)
+    print("Open this URL, approve the app, and pCloud will show you a code:")
+    print(f"\n  {auth_url}\n")
+
+    try:
+        code = input("Paste the code here: ").strip()
+    except EOFError as exc:
+        raise AuthenticationError(
+            "No code supplied. This mode needs an interactive terminal "
+            "(run the container with -it)."
+        ) from exc
+    if not code:
+        raise AuthenticationError("No authorization code supplied")
+
+    print(f"Exchanging the authorization code on {api_host}...")
+    return _save_and_report(token_store, _exchange_code(client_id, client_secret, code, api_host))
+
+
 def run_login_flow(
     client_id: str,
     client_secret: SecretStr,
     token_store: TokenStore,
     callback_port: int = DEFAULT_CALLBACK_PORT,
+    *,
     open_browser: bool = True,
+    redirect_uri: str | None = None,
 ) -> TokenData:
     """Run the OAuth 2.0 authorization code flow and persist the result.
 
@@ -204,6 +321,12 @@ def run_login_flow(
         callback_port: Local port to receive pCloud's redirect on.
         open_browser: Whether to launch a browser automatically. Set False
             on headless hosts, where the URL is printed instead.
+        redirect_uri: Where pCloud sends the browser after approval.
+            Defaults to localhost on ``callback_port``, which only works
+            when the browser runs on this machine. Behind a reverse proxy,
+            pass the public callback URL (or set
+            PCLOUD_OAUTH_REDIRECT_URI); the listener still binds locally
+            and the proxy bridges the two.
 
     Returns:
         The token that was obtained and saved.
@@ -212,22 +335,17 @@ def run_login_flow(
         AuthenticationError: If pCloud denies the request, the CSRF state
             does not match, or the code exchange fails.
     """
-    redirect_uri = f"http://localhost:{callback_port}/callback"
-    state = secrets.token_urlsafe(32)
+    if redirect_uri is None:
+        redirect_uri = os.environ.get(REDIRECT_URI_VAR, "").strip() or None
+    if redirect_uri is None:
+        redirect_uri = f"http://localhost:{callback_port}/callback"
 
-    params = urlencode(
-        {
-            "client_id": client_id,
-            "response_type": "code",
-            "redirect_uri": redirect_uri,
-            "state": state,
-        }
-    )
-    auth_url = f"{OAUTH_AUTHORIZE_URL}?{params}"
+    state = secrets.token_urlsafe(32)
+    auth_url = _build_authorize_url(client_id, state, redirect_uri)
 
     server = _CallbackServer(("127.0.0.1", callback_port), _CallbackHandler)
 
-    print(f"Listening for pCloud's redirect on {redirect_uri}")
+    print(f"Listening on 127.0.0.1:{callback_port}; pCloud redirects to {redirect_uri}")
     print(f"\nOpen this URL and approve the app:\n\n  {auth_url}\n")
     if open_browser:
         webbrowser.open(auth_url)
@@ -242,53 +360,16 @@ def run_login_flow(
     if not secrets.compare_digest(server.callback_state or "", state):
         raise AuthenticationError("State parameter mismatch -- possible CSRF, aborting")
 
-    # pCloud reports which data center holds the account. Trust it over any
-    # configured default, but never trust it blindly.
+    # The callback reports which data centre holds the account. Honour it
+    # only if it is a known pCloud endpoint -- a redirect must not be able to
+    # aim the client at an arbitrary host.
     api_host = server.callback_hostname or US_API_HOST
     if api_host not in VALID_API_HOSTS:
         logger.warning("Ignoring unrecognized callback hostname %r", api_host)
         api_host = US_API_HOST
 
     print(f"Exchanging the authorization code on {api_host}...")
-    try:
-        with httpx.Client(timeout=HTTP_TIMEOUT, verify=True) as http:
-            response = http.post(
-                f"https://{api_host}/oauth2_token",
-                data={
-                    "client_id": client_id,
-                    "client_secret": client_secret.get_secret_value(),
-                    "code": server.callback_code,
-                },
-            )
-            response.raise_for_status()
-            payload = response.json()
-    except httpx.HTTPStatusError as exc:
-        raise AuthenticationError(
-            f"Token exchange failed with HTTP {exc.response.status_code}"
-        ) from exc
-    except (httpx.HTTPError, ValueError) as exc:
-        raise AuthenticationError(f"Token exchange failed: {exc}") from exc
-
-    # pCloud signals failure with a non-zero ``result`` field rather than
-    # an HTTP status, so a 200 response still has to be inspected.
-    result_code = int(payload.get("result", PCLOUD_OK))
-    if result_code != PCLOUD_OK:
-        raise AuthenticationError(
-            f"pCloud rejected the authorization code "
-            f"(result {result_code}): {payload.get('error', '')}"
-        )
-
-    access_token = payload.get("access_token")
-    if not access_token:
-        raise AuthenticationError("Token response contained no access_token")
-
-    uid_raw = payload.get("uid")
-    token_data = TokenData(
-        access_token=SecretStr(str(access_token)),
-        api_host=api_host,
-        uid=int(uid_raw) if uid_raw is not None else None,
+    token_data = _exchange_code(
+        client_id, client_secret, server.callback_code, api_host, redirect_uri
     )
-    token_store.save(token_data)
-    print(f"\nLogin successful. Token saved to {token_store.path}")
-    print(f"Region: {token_data.api_host}")
-    return token_data
+    return _save_and_report(token_store, token_data)
