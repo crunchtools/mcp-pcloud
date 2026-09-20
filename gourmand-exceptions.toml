@@ -1,19 +1,42 @@
-[[exceptions]]
-check = "summary_litter"
-path = "CLAUDE.md"
-justification = "Claude Code project instructions for AI assistant orientation. Constitution Section V lists framework requirements (CLAUDE.md for Claude Code) as an acceptable exception."
 
 [[exceptions]]
-check = "over_abstraction"
+check = "CH010-over_abstraction"
 path = "tests/helpers.py"
 justification = "mock_response and text_response are test fixtures that name the two response shapes the pCloud API returns. Inlining them would repeat the httpx.Response construction across seventy-four tests."
+classification = "by_design"
 
 [[exceptions]]
-check = "copy_paste_detection"
+check = "CH012-copy_paste_detection"
 path = "src/mcp_pcloud_crunchtools/config.py"
 justification = "access_token and auth_token are deliberately parallel: pCloud treats the OAuth token and the session token as different credential types, carried on different transports. Merging them would erase the distinction the whole dual-credential design rests on."
+classification = "by_design"
 
 [[exceptions]]
-check = "copy_paste_detection"
-path = "src/mcp_pcloud_crunchtools/client.py"
-justification = "get_client and get_config are both the four-line lazy-singleton accessor: check the module global, construct if None, return. The duplication is the idiom; hiding it behind a generic obscures which global is being initialised."
+check = "EV002-manifest_lint_suppression"
+path = "pyproject.toml"
+justification = "Each remaining global ruff ignore was verified against this codebase with `ruff check --select <RULE>` before being kept: TRY003 (32 real hits in src/, long pCloud API error messages), PLR0913 (2 hits, MCP tool functions genuinely take many named parameters), PLR2004 (2 hits in src/, e.g. response-size and status-code comparisons), PLW0603 (3 hits, module-level lazy singletons for config/client), PLC0415 (8 hits in src/ plus tests/, deliberate lazy imports for CLI startup speed and to avoid circular imports), S105 (4 hits in src/, env-var NAME constants like PCLOUD_CLIENT_SECRET that ruff misreads as hardcoded passwords), TID252 (15 hits, this package's own internal relative imports). Two previously-global entries with zero hits anywhere (PIE790, RUF022) were deleted outright rather than excepted. S101 (assert, 125 hits, tests only) was moved from the global ignore into `[tool.ruff.lint.per-file-ignores]` for tests/* instead of staying global, narrowing its scope to where it is actually used. ARG002 was already correctly scoped to tests/* only (unused mock-callback arguments)."
+classification = "by_design"
+
+[[exceptions]]
+check = "CH007-print_alongside_logger"
+path = "src/mcp_pcloud_crunchtools/auth.py"
+justification = "print() in _save_and_report, run_manual_login, and run_login_flow is the interactive CLI's user-facing output for the `login` subcommand (prompts, URLs to open, status of an in-progress OAuth flow) -- it is talking to the person at the terminal, not logging. `logger` in this same file (load/save token diagnostics, hostname-validation warnings) is a separate, unrelated diagnostic channel. The two are deliberately not the same stream."
+classification = "by_design"
+
+[[exceptions]]
+check = "CH020-direct_exit"
+path = "src/mcp_pcloud_crunchtools/__init__.py"
+justification = "This is gourmand's own designated entry point -- `[project.scripts]` in pyproject.toml points mcp-pcloud-crunchtools at `mcp_pcloud_crunchtools:main`, and `sys.exit()` is called only from `main()` itself. CH020's entry_point_files patterns (**/main.py, **/cli.py, **/_main.py, **/_cli.py, bin/**) don't include `__init__.py`, which is the standard place for `main()` in a single-package console-script project; the check's file-name heuristic doesn't recognize this layout. `_run_login` (the only other place sys.exit used to appear) now raises UserError instead and lets main() translate that to an exit code, per this same check's own recommendation."
+classification = "gourmand_bug"
+
+[[exceptions]]
+check = "DC004-dead_structs"
+path = "src/mcp_pcloud_crunchtools/auth.py"
+justification = "_CallbackHandler is a http.server.BaseHTTPRequestHandler subclass, passed as a class (not instantiated) to _CallbackServer(...) / HTTPServer's constructor at auth.py's run_login_flow; the stdlib http.server framework instantiates handler objects internally per incoming request. DC004 already carries a documented exemption for the equivalent FastAPI/Pydantic pattern (a BaseModel subclass used only as a parameter annotation); the stdlib BaseHTTPRequestHandler idiom is the same shape (framework-driven construction, never a direct call site in project code) but isn't covered by that exemption."
+classification = "gourmand_bug"
+
+[[exceptions]]
+check = "CH012-copy_paste_detection"
+path = "src/mcp_pcloud_crunchtools/__init__.py"
+justification = "Flagged as '100% similar' to _CallbackHandler.do_GET in auth.py. The two functions do unrelated things -- main() wires up argparse subcommands and dispatches to _run_login/_run_server; do_GET parses an OAuth callback query string and writes an HTTP response. The similarity score is coincidental on statement count/shape (9 statements each), not on any actual duplicated logic; there is nothing to extract a shared helper from."
+classification = "gourmand_bug"

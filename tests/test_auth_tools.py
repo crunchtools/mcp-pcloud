@@ -1,5 +1,7 @@
 """Browser-authorization tools and the /callback route."""
 
+from unittest.mock import patch
+
 import httpx
 import pytest
 from pydantic import SecretStr
@@ -75,8 +77,6 @@ class TestCompleteLogin:
                 json=payload or {"result": 0, "access_token": "tok", "uid": 7},
                 request=httpx.Request("POST", url),
             )
-
-        from unittest.mock import patch
 
         with patch.object(httpx.Client, "post", fake_post):
             data = complete_login(
