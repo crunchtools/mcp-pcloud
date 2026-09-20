@@ -2,7 +2,7 @@
 
 from mcp_pcloud_crunchtools.server import mcp
 
-EXPECTED_TOOL_COUNT = 15
+EXPECTED_TOOL_COUNT = 18
 
 EXPECTED_TOOLS = {
     "pcloud_list_folder",
@@ -20,6 +20,9 @@ EXPECTED_TOOLS = {
     "pcloud_create_public_link",
     "pcloud_search",
     "pcloud_get_user_info",
+    "pcloud_auth_status",
+    "pcloud_auth_start",
+    "pcloud_auth_result",
 }
 
 

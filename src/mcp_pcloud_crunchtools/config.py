@@ -55,6 +55,7 @@ SESSION_VAR = "PCLOUD_AUTH_TOKEN"
 CLIENT_ID_VAR = "PCLOUD_CLIENT_ID"
 CLIENT_SECRET_VAR = "PCLOUD_CLIENT_SECRET"
 API_HOST_VAR = "PCLOUD_API_HOST"
+REDIRECT_URI_VAR = "PCLOUD_OAUTH_REDIRECT_URI"
 
 
 class AuthMode(enum.Enum):
@@ -241,6 +242,16 @@ class Config:
         if self._auth_token is None:
             raise ConfigurationError(f"{SESSION_VAR} is not configured")
         return self._auth_token.get_secret_value()
+
+    @property
+    def oauth_redirect_uri(self) -> str | None:
+        """Return the public URL pCloud should redirect to after approval.
+
+        Unset means browser authorization is unavailable: a container has no
+        reachable localhost from the user's browser, so there is nowhere for
+        pCloud to send them.
+        """
+        return os.environ.get(REDIRECT_URI_VAR, "").strip() or None
 
     @property
     def api_host(self) -> str:

@@ -7,8 +7,10 @@ logic lives in tools/*.py.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from fastmcp import FastMCP
+from starlette.responses import HTMLResponse
 
 from . import tools
 from .errors import UserError
@@ -20,9 +22,12 @@ from .models import (
     SearchInput,
 )
 
+if TYPE_CHECKING:
+    from starlette.requests import Request
+
 logger = logging.getLogger(__name__)
 
-mcp: FastMCP = FastMCP("mcp-pcloud-crunchtools", version="2.4.0")
+mcp: FastMCP = FastMCP("mcp-pcloud-crunchtools", version="2.5.0")
 
 
 def _safe(exc: UserError) -> str:
@@ -177,3 +182,92 @@ async def pcloud_get_user_info() -> str:
         return await tools.get_user_info()
     except UserError as exc:
         return _safe(exc)
+
+
+@mcp.tool()
+async def pcloud_auth_status() -> str:
+    """Report whether this server currently holds a usable pCloud credential.
+
+    Call this first. It says whether the server can reach pCloud, and if it
+    cannot, what is missing and which tool fixes it.
+    """
+    try:
+        return await tools.auth_status()
+    except UserError as exc:
+        return _safe(exc)
+
+
+@mcp.tool()
+async def pcloud_auth_start() -> str:
+    """Begin browser authorization and return the URL for the user to approve.
+
+    Open the returned URL. The user approves there, pCloud redirects back to
+    this server, and the token is stored automatically -- nothing is copied
+    back by hand. Then call pcloud_auth_status to confirm.
+    """
+    try:
+        return await tools.auth_start()
+    except UserError as exc:
+        return _safe(exc)
+
+
+@mcp.tool()
+async def pcloud_auth_result() -> str:
+    """Report the outcome of the most recent authorization redirect."""
+    try:
+        return await tools.auth_result()
+    except UserError as exc:
+        return _safe(exc)
+
+
+@mcp.custom_route("/callback", methods=["GET"])
+async def oauth_callback(request: Request) -> HTMLResponse:
+    """Receive pCloud's redirect and finish the authorization.
+
+    This is the whole reason the flow needs no copy and paste: pCloud sends
+    the browser here, and the exchange happens server-side before the page
+    renders. The response is read by a human, so it says what happened in
+    plain words and never echoes a credential.
+    """
+    from .auth import complete_login, get_pending_login
+    from .config import get_config
+
+    params = request.query_params
+    error = params.get("error")
+    code = params.get("code")
+
+    if error or not code:
+        detail = error or "pCloud returned no authorization code"
+        get_pending_login().record(f"Authorization failed: {detail}")
+        return HTMLResponse(_callback_page("Authorization failed", detail), status_code=400)
+
+    try:
+        config = get_config()
+        redirect_uri = config.oauth_redirect_uri or ""
+        token_data = complete_login(
+            config.client_id,
+            config.client_secret,
+            config.token_store,
+            code=code,
+            state=params.get("state"),
+            hostname=params.get("hostname"),
+            redirect_uri=redirect_uri,
+        )
+    except UserError as exc:
+        get_pending_login().record(f"Authorization failed: {exc}")
+        return HTMLResponse(_callback_page("Authorization failed", str(exc)), status_code=400)
+
+    summary = f"Token stored. Region {token_data.api_host}, uid {token_data.uid}."
+    get_pending_login().record(f"Authorization succeeded. {summary}")
+    logger.info("Browser authorization completed")
+    return HTMLResponse(_callback_page("pCloud authorization complete", "You can close this tab."))
+
+
+def _callback_page(heading: str, detail: str) -> str:
+    """Render the minimal page a human sees after being redirected back."""
+    return (
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        f"<title>{heading}</title></head>"
+        "<body style='font-family:system-ui;max-width:34rem;margin:4rem auto'>"
+        f"<h2>{heading}</h2><p>{detail}</p></body></html>"
+    )

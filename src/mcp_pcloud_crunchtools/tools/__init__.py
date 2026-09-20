@@ -5,6 +5,7 @@ registration lives in server.py; no business logic belongs there.
 """
 
 from .account import get_user_info
+from .auth import auth_result, auth_start, auth_status
 from .files import (
     copy_file,
     delete_file,
@@ -24,6 +25,9 @@ from .links import create_public_link, get_file_link
 from .search import search
 
 __all__ = [
+    "auth_result",
+    "auth_start",
+    "auth_status",
     "copy_file",
     "copy_folder",
     "create_folder",

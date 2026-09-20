@@ -347,17 +347,17 @@ class TestAuthorizeUrl:
     """pCloud makes redirect_uri optional for the code flow."""
 
     def test_redirect_uri_included_when_given(self):
-        from mcp_pcloud_crunchtools.auth import _build_authorize_url
+        from mcp_pcloud_crunchtools.auth import build_authorize_url
 
-        url = _build_authorize_url("cid", "st", "https://example.com/callback")
+        url = build_authorize_url("cid", "st", "https://example.com/callback")
         assert "redirect_uri=https%3A%2F%2Fexample.com%2Fcallback" in url
         assert "response_type=code" in url
 
     def test_redirect_uri_omitted_entirely_when_none(self):
         """Omitting it is what makes pCloud display the code instead."""
-        from mcp_pcloud_crunchtools.auth import _build_authorize_url
+        from mcp_pcloud_crunchtools.auth import build_authorize_url
 
-        url = _build_authorize_url("cid", "st", None)
+        url = build_authorize_url("cid", "st", None)
         assert "redirect_uri" not in url
         assert "client_id=cid" in url
 
