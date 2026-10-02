@@ -1,200 +1,90 @@
 # mcp-pcloud-crunchtools Constitution
 
-> **Version:** 1.1.1
+> **Version:** 1.2.0
 > **Ratified:** 2026-09-05
-> **Last Amended:** 2026-09-05
+> **Amended:** 2026-10-02
 > **Status:** Active
-> **Inherits:** [crunchtools/constitution](https://github.com/crunchtools/constitution) v1.17.0
+> **Inherits:** [crunchtools/constitution](https://github.com/crunchtools/constitution) v1.18.0
 > **Profile:** MCP Server
 
-This constitution establishes the core principles, constraints, and workflows that govern all development on mcp-pcloud-crunchtools.
+This file holds what is specific to mcp-pcloud. The fleet rules and the MCP
+Server profile (five-layer security model, two-layer tools, distribution
+channels, transport modes, quality gates, Gourmand) apply at the inherited
+version and are checked against this repo's files by `constitution.yml`. They
+are not restated here.
 
----
+## Security Model Specifics
 
-## I. Core Principles
+- **Credentials:** held as Pydantic `SecretStr`, never logged, rendered as
+  `***` by `Config.__repr__`/`__str__`, and removed from every outgoing error
+  message by `errors._scrub`. Each credential variable honors the `_FILE`
+  convention; the file wins over the plain variable, contents are stripped on
+  read, and a token file readable beyond its owner raises a warning, never a
+  failure.
+- **Input limits:** paths MUST be absolute, free of NUL bytes,
+  length-bounded, and free of `..` segments. Traversal rejection is what keeps
+  a caller from escaping a folder it was scoped to by a gateway tool
+  allowlist. Search queries are length-bounded and non-empty.
+- **API:** requests time out after 30s; responses above 10 MB are rejected;
+  TLS validation stays at httpx defaults and MUST NOT be made configurable
+  off. pCloud result codes are mapped onto the safe error hierarchy, not
+  surfaced raw.
+- **Surface:** pure pCloud API wrappers. No local filesystem access beyond
+  reading the credential file.
 
-### 1. Five-Layer Security Model
+## Authentication Principle
 
-Every change MUST preserve all five security layers. No exceptions.
-
-**Layer 1 — Credential Protection:**
-- The pCloud OAuth access token is held as a Pydantic `SecretStr` and is never logged.
-- `PCLOUD_ACCESS_TOKEN_FILE` is supported and takes precedence over `PCLOUD_ACCESS_TOKEN`. File contents are stripped on read; a token file readable beyond its owner raises a warning, never a failure.
-- `Config.__repr__` and `Config.__str__` render the token as `***`.
-- `errors._scrub` removes any configured credential value from every outgoing error message.
-
-**Layer 2 — Input Validation:**
-- Every tool validates input through a Pydantic v2 model with `extra="forbid"`.
-- Paths MUST be absolute, free of NUL bytes, length-bounded, and free of `..` traversal segments. Traversal rejection is what keeps a caller from escaping a folder they were scoped to by a gateway tool allowlist.
-- Search queries are length-bounded and non-empty.
-
-**Layer 3 — API Hardening:**
-- Credentials MUST NOT appear in a URL. An OAuth access token is sent in an `Authorization: Bearer` header; a pCloud session token is sent in a POST body. Password-derived tokens travelled in the query string; that authentication mode was removed in 2.0.0 and MUST NOT return.
-- TLS certificate validation is left at httpx defaults and MUST NOT be made configurable off.
-- Requests carry a 30 second timeout; responses above 10 MB are rejected.
-- pCloud result codes are mapped onto the safe error hierarchy rather than surfaced raw.
-
-**Layer 4 — Dangerous Operation Prevention:**
-- No shell execution, no code evaluation, no `eval()`/`exec()`, no local filesystem access beyond reading the credential file.
-- Tools are pure pCloud API wrappers.
-
-**Layer 5 — Supply Chain Security:**
-- Weekly automated CVE scanning via GitHub Actions.
-- Hummingbird FIPS container base images, distroless runtime.
-- Gourmand AI slop detection gates every PR at zero violations.
-
-### 2. Two-Layer Tool Architecture
-
-- `server.py` holds `@mcp.tool()` wrappers that validate arguments and delegate.
-- `tools/*.py` holds pure async functions that call `client.py`.
-
-Business logic MUST NOT live in `server.py`. MCP registration MUST NOT live in `tools/*.py`.
-
-### 3. Authentication Is Token-Based, OAuth Preferred
-
-pCloud accounts with two-factor authentication enabled cannot complete the legacy digest login, and that flow placed the resulting token in the URL query string. This server never derives a credential from a password and never places one in a URL.
-
-Two credential kinds are accepted:
+Token-based, OAuth preferred. This server never derives a credential from a
+password and never places one in a URL, where it would leak into access logs,
+proxies and referrers. pCloud's legacy digest login put the token in the
+query string and cannot complete on accounts with two-factor authentication;
+username/password mode was removed in 2.0.0 and MUST NOT return.
 
 | Kind | Variable | Transport |
 |------|----------|-----------|
 | OAuth access token | `PCLOUD_ACCESS_TOKEN` | `Authorization: Bearer` header, GET |
 | pCloud session token | `PCLOUD_AUTH_TOKEN` | `auth` field in a POST body |
 
-Both honor the `_FILE` convention. When both are configured the OAuth token wins; the session token is a fallback for accounts that have no OAuth application provisioned.
+When both are configured the OAuth token wins. The session token is a
+fallback for accounts with no OAuth application provisioned: pCloud issues it
+to its own desktop client and rejects it as an `access_token` (`result
+2094`), so it cannot be exchanged for an OAuth token. It carries the same
+authority and is protected identically.
 
-A session token is accepted because pCloud issues it to its own desktop client and rejects it as an `access_token` (`result 2094`), so it cannot be exchanged for an OAuth token. It carries the same authority as an OAuth token and MUST be protected identically. The security property the constitution actually defends is that a credential never enters a URL, where it would leak into access logs, proxies, and referrers; a POST body preserves that property.
+Reintroducing username/password authentication, or moving any credential
+into a URL or query string, requires an amendment to this file.
 
-Reintroducing username/password authentication, or moving any credential into a URL or query string, requires a constitutional amendment.
+## Dependency Pins
 
-### 4. Three Distribution Channels
+`fastmcp` is pinned `>=2.0,<3.0` deliberately: fastmcp 3.x pulls `mcp>=2.0`,
+which renames `FastMCP` to `MCPServer` and changes the client stream
+contract, and the backend fleet runs the v1 protocol.
 
-Every release ships through uvx, pip (PyPI), and container (Quay.io + GHCR) simultaneously.
+## Instance
 
-### 5. Three Transport Modes
-
-stdio (default), SSE, and streamable-http MUST all remain supported.
-
----
-
-## II. Technology Stack
-
-| Layer | Technology |
-|-------|------------|
-| Language | Python 3.11+ |
-| MCP Framework | FastMCP (`fastmcp>=2.0,<3.0`) |
-| HTTP Client | httpx |
-| Validation | Pydantic v2 |
-| Container Base | Hummingbird FIPS |
-| Package Manager | uv |
-| Build System | hatchling |
-| Linter | ruff |
-| Type Checker | mypy (strict) |
-| Tests | pytest + pytest-asyncio |
-| Slop Detector | gourmand |
-
-`fastmcp` is pinned below 3.0 deliberately: fastmcp 3.x pulls `mcp>=2.0`, which renames `FastMCP` to `MCPServer` and changes the client stream contract. The lotor backend fleet runs the v1 protocol.
-
----
-
-## III. Container Conventions
-
-- Build file is `Containerfile`.
-- Multi-stage venv build; builder and runtime MUST both be Hummingbird FIPS images.
-- Runtime is distroless — no shell-form `RUN` in the runtime stage.
-- Required labels: `name`, `version`, `summary`, `maintainer`, plus `org.opencontainers.image.source`, `.description`, and `.licenses`.
-- `EXPOSE 8028` — the assigned HTTP port for this server.
-
----
-
-## IV. Testing Standards
-
-- Every tool has a mocked test; no live pCloud calls in CI and no token required.
-- `httpx.AsyncClient.get` is patched; tool functions are called directly rather than through the MCP wrapper.
-- An autouse fixture resets the `config` and `client` singletons between every test.
-- `test_tool_count` MUST be updated whenever tools are added or removed.
-- Error-code mapping, token scrubbing, and identifier truncation MUST each retain explicit tests.
-
----
-
-## V. Code Quality Gates
-
-| Gate | Command |
-|------|---------|
-| Lint | `uv run ruff check src tests` |
-| Type Check | `uv run mypy src` |
-| Tests | `uv run pytest -v` |
-| Gourmand | `gourmand --full` (zero violations) |
-| Code Review | Gatehouse AI code review on every PR |
-| Container Build | `podman build -f Containerfile .` |
-
-### Gourmand Exception Policy
-
-Exceptions MUST carry a documented justification in `gourmand-exceptions.toml`. Acceptable reasons are standard API patterns, test-specific patterns, and framework requirements. Unacceptable reasons are "the code is special", "the threshold is too strict", and rewording to evade detection. This repository currently declares no exceptions and MUST stay at zero violations without them.
-
----
-
-## VI. Naming
-
-| Context | Value |
-|---------|-------|
+| Context | Name |
+|---------|------|
 | GitHub repo | `crunchtools/mcp-pcloud` |
 | PyPI package | `mcp-pcloud-crunchtools` |
 | Python module | `mcp_pcloud_crunchtools` |
-| Container | `quay.io/crunchtools/mcp-pcloud`, `ghcr.io/crunchtools/mcp-pcloud` |
+| Container image | `quay.io/crunchtools/mcp-pcloud`, `ghcr.io/crunchtools/mcp-pcloud` |
 | MCP Registry | `io.github.crunchtools/pcloud` |
 | systemd service | `mcp-pcloud.crunchtools.com.service` |
-| License | AGPL-3.0-or-later |
+| HTTP port | 8028 |
 
----
+The version MUST be identical in `pyproject.toml`, `__init__.py`,
+`server.py`, `server.json` and the `Containerfile` label.
 
-## VII. Semantic Versioning
+## Test Invariants
 
-Releases follow Semantic Versioning 2.0.0. MAJOR for incompatible changes to tool signatures or authentication, MINOR for backwards-compatible tools or capabilities, PATCH for backwards-compatible fixes. Version 2.0.0 records the removal of username/password authentication and the port from TypeScript to Python.
+Error-code mapping, token scrubbing and identifier truncation each keep
+explicit tests. `EXPECTED_TOOL_COUNT` and `EXPECTED_TOOLS` in
+`tests/test_server.py` change with every tool added or removed.
 
-The version MUST be identical in `pyproject.toml`, `__init__.py`, `server.py`, `server.json`, and the `Containerfile` label.
+## History
 
----
-
-## VIII. Development Workflow
-
-### Adding a Tool
-
-1. Add the async function to the appropriate `tools/*.py`.
-2. Export it from `tools/__init__.py`.
-3. Register an `@mcp.tool()` wrapper in `server.py` that validates through a Pydantic model.
-4. Add a mocked test in `tests/test_tools.py`.
-5. Update `EXPECTED_TOOL_COUNT` and `EXPECTED_TOOLS` in `tests/test_server.py`.
-6. Run all quality gates.
-
-### Deprecation Policy
-
-A removed or renamed tool is announced in the release notes of one MINOR release before removal, and removal lands in the next MAJOR.
-
----
-
-## IX. Governance
-
-This repository carries the full text of its governance. The `Inherits` header declares alignment with the MCP Server profile, not a runtime dependency on it.
-
-Files:
-- `.specify/memory/constitution.md` — this document
-- `.specify/specs/000-baseline/spec.md` — tool inventory and architecture baseline
-- `.specify/templates/` — `plan-template.md` and `spec-template.md`
-
-### Specification-Driven Development
-
-New tool groups, new subsystems, changes to the security model, and changes spanning multiple modules each require a numbered spec under `.specify/specs/` before implementation. Bug fixes, dependency updates, CI changes, documentation, and single-tool additions following Section VIII are exempt.
-
----
-
-## X. Amendment Process
-
-Amendments follow the universal constitution's process. Changes to the five-layer security model or to the authentication principle require an explicit version bump of this document and a recorded justification.
-
-### Amendment History
-
-| Version | Date | Change |
-|---------|------|--------|
-| 1.0.0 | 2026-09-05 | Initial ratification alongside the 2.0.0 Python rewrite. |
-| 1.1.0 | 2026-09-05 | Section I.3 widened from "OAuth only" to "token-based, OAuth preferred", admitting pCloud session tokens transported in a POST body. Rationale: pCloud rejects its own desktop-client session token as an `access_token` (`result 2094`), so an account without a provisioned OAuth application had no usable credential. The no-credentials-in-URL rule is unchanged and is what Layer 3 continues to enforce. |
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0.0 | 2026-09-05 | Initial ratification alongside the 2.0.0 Python rewrite |
+| 1.1.0 | 2026-09-05 | Authentication widened from "OAuth only" to "token-based, OAuth preferred", admitting pCloud session tokens in a POST body; no-credentials-in-URL rule unchanged |
+| 1.2.0 | 2026-10-02 | Manifest under constitution v1.18.0: profile restatement removed, mcp-pcloud specifics kept |
