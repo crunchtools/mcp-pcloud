@@ -27,7 +27,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-mcp: FastMCP = FastMCP("mcp-pcloud-crunchtools", version="2.5.0")
+# A gateway drops an invalid optional argument only on a tool annotated read-only;
+# on anything else it refuses the call. Only tools that change nothing in pCloud,
+# in the token store, or in the pending-login slot get this.
+# pcloud_list_folder and pcloud_search only read, but stay unannotated: their
+# optional `path` defaults to "/", so a dropped `path` would list or search the
+# whole account and escape a folder the caller was scoped to.
+READ_ONLY = {"readOnlyHint": True}
+
+mcp: FastMCP = FastMCP("mcp-pcloud-crunchtools", version="2.6.0")
 
 
 def _safe(exc: UserError) -> str:
@@ -85,7 +93,7 @@ async def pcloud_copy_folder(path: str, to_path: str) -> str:
         return _safe(exc)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def pcloud_get_file_info(path: str) -> str:
     """Get metadata for a file in pCloud."""
     try:
@@ -125,7 +133,7 @@ async def pcloud_copy_file(path: str, to_path: str) -> str:
         return _safe(exc)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def pcloud_read_text_file(path: str) -> str:
     """Read the contents of a UTF-8 text file stored in pCloud."""
     try:
@@ -135,7 +143,7 @@ async def pcloud_read_text_file(path: str) -> str:
         return _safe(exc)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def pcloud_get_checksum(path: str) -> str:
     """Get pCloud's stored SHA256, SHA1, and MD5 checksums for a file."""
     try:
@@ -145,7 +153,7 @@ async def pcloud_get_checksum(path: str) -> str:
         return _safe(exc)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def pcloud_get_file_link(path: str) -> str:
     """Get a temporary direct download URL for a file in pCloud."""
     try:
@@ -175,7 +183,7 @@ async def pcloud_search(query: str, path: str = "/") -> str:
         return _safe(exc)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def pcloud_get_user_info() -> str:
     """Get the authenticated pCloud account's profile and quota usage."""
     try:
@@ -184,7 +192,7 @@ async def pcloud_get_user_info() -> str:
         return _safe(exc)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 async def pcloud_auth_status() -> str:
     """Report whether this server currently holds a usable pCloud credential.
 

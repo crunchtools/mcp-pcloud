@@ -1,7 +1,13 @@
 """Mocked tests for every pCloud tool function."""
 
+import json
+from typing import Any
+from unittest.mock import AsyncMock, patch
+
+import httpx
 import pytest
 
+from mcp_pcloud_crunchtools import config as config_module
 from mcp_pcloud_crunchtools import tools
 from mcp_pcloud_crunchtools.errors import (
     AuthenticationError,
@@ -11,6 +17,7 @@ from mcp_pcloud_crunchtools.errors import (
     RateLimitError,
     TwoFactorRequiredError,
 )
+from mcp_pcloud_crunchtools.server import mcp
 from tests.helpers import mock_response, patch_client, text_response
 
 FILE_META = {
@@ -265,3 +272,141 @@ class TestSessionTokenTransport:
             pytest.raises(AuthenticationError),
         ):
             await tools.get_file_info("/a.txt")
+
+
+READ_ONLY = frozenset(
+    {
+        "pcloud_get_file_info",
+        "pcloud_read_text_file",
+        "pcloud_get_checksum",
+        "pcloud_get_file_link",
+        "pcloud_get_user_info",
+        "pcloud_auth_status",
+    }
+)
+WRITES = frozenset(
+    {
+        # These two only read (listfolder, search), but their optional `path`
+        # defaults to "/". Annotated, a gateway could drop an invalid `path` and
+        # the call would cover the whole account, so they stay unannotated.
+        "pcloud_list_folder",
+        "pcloud_search",
+        "pcloud_create_folder",
+        "pcloud_delete_folder",
+        "pcloud_rename_folder",
+        "pcloud_copy_folder",
+        "pcloud_delete_file",
+        "pcloud_rename_file",
+        "pcloud_copy_file",
+        # getfilepublink creates the public link it returns.
+        "pcloud_create_public_link",
+        # Replaces the pending CSRF state, which invalidates a login in flight.
+        "pcloud_auth_start",
+        # Only reports the last redirect's outcome, but it belongs to the flow
+        # that stores a token, so it stays unannotated.
+        "pcloud_auth_result",
+    }
+)
+
+# pCloud sends reads and writes alike as GET (or, with a session token, all as
+# POST), so the HTTP verb says nothing. What separates them is the API method
+# in the path. These are the methods that change nothing in the account.
+READ_METHODS = frozenset(
+    {
+        "stat",
+        "gettextfile",
+        "checksumfile",
+        # Mints a time-limited download URL; creates nothing in the account.
+        "getfilelink",
+        "userinfo",
+    }
+)
+
+CONTENT_HOST = "c1.pcloud.com"
+
+# Arguments for each read-only tool, and the pCloud payload that answers it.
+READ_ONLY_CALLS: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
+    "pcloud_get_file_info": (
+        {"path": "/Documents/report.pdf"},
+        {"result": 0, "metadata": FILE_META},
+    ),
+    "pcloud_read_text_file": (
+        {"path": "/notes.txt"},
+        {"result": 0, "hosts": [CONTENT_HOST], "path": "/dl/notes.txt"},
+    ),
+    "pcloud_get_checksum": ({"path": "/a.bin"}, {"result": 0, "sha256": "abc"}),
+    "pcloud_get_file_link": (
+        {"path": "/a.bin"},
+        {"result": 0, "hosts": [CONTENT_HOST], "path": "/dl/a.bin"},
+    ),
+    "pcloud_get_user_info": ({}, {"result": 0, "email": "a@b.c", "quota": 10}),
+    "pcloud_auth_status": ({}, {"result": 0, "email": "a@b.c"}),
+}
+
+
+async def _api_methods_called(name: str, tmp_path: Any, monkeypatch: Any) -> list[str]:
+    """Call a registered tool against a mocked pCloud and return the API methods it hit.
+
+    Runs in OAuth application mode with a stored token, the one mode in which
+    every tool, pcloud_auth_status included, reaches pCloud. Also asserts the
+    token store, the only thing this server keeps on disk, is left untouched.
+    """
+    arguments, payload = READ_ONLY_CALLS.get(name, ({"path": "/a.bin"}, {"result": 0, "link": "x"}))
+    store = tmp_path / "tokens.json"
+    store.write_text(json.dumps({"access_token": "stored-token", "api_host": "api.pcloud.com"}))
+    monkeypatch.delenv("PCLOUD_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("PCLOUD_CLIENT_ID", "cid")
+    monkeypatch.setenv("PCLOUD_CLIENT_SECRET", "csec")
+    monkeypatch.setenv("PCLOUD_TOKEN_STORE_PATH", str(store))
+    config_module._config = None
+    before = (store.read_bytes(), store.stat().st_mtime_ns, sorted(tmp_path.iterdir()))
+
+    async def fake_get(url: str, **_kwargs: Any) -> httpx.Response:
+        if url.startswith("https://"):
+            return text_response("file body")
+        return mock_response(payload)
+
+    get = AsyncMock(side_effect=fake_get)
+    post = AsyncMock()
+    with (
+        patch.object(httpx.AsyncClient, "get", get),
+        patch.object(httpx.AsyncClient, "post", post),
+        patch.object(httpx.Client, "post", post),
+    ):
+        await mcp.call_tool(name, arguments)
+
+    post.assert_not_called()
+    assert (store.read_bytes(), store.stat().st_mtime_ns, sorted(tmp_path.iterdir())) == before
+    urls = [call.args[0] for call in get.await_args_list]
+    # A full URL is the content download pCloud pointed at; the rest are API methods.
+    content = [url for url in urls if url.startswith("https://")]
+    assert all(url.startswith(f"https://{CONTENT_HOST}/") for url in content)
+    return [url.removeprefix("/") for url in urls if url not in content]
+
+
+class TestReadOnlyAnnotation:
+    """Every registered tool is classified, and the reads really only read."""
+
+    async def test_every_tool_is_classified(self):
+        registered = await mcp.list_tools()
+        assert READ_ONLY.isdisjoint(WRITES)
+        assert {tool.name for tool in registered} == READ_ONLY | WRITES
+        annotated = {
+            tool.name
+            for tool in registered
+            if tool.annotations is not None
+            and tool.annotations.model_dump(by_alias=True).get("readOnlyHint") is True
+        }
+        assert annotated == READ_ONLY
+
+    @pytest.mark.parametrize("name", sorted(READ_ONLY))
+    async def test_read_only_tool_calls_only_read_methods(self, name, tmp_path, monkeypatch):
+        methods = await _api_methods_called(name, tmp_path, monkeypatch)
+        assert methods, f"{name} never reached pCloud"
+        assert set(methods) <= READ_METHODS
+
+    async def test_a_write_is_caught_by_the_method_check(self, tmp_path, monkeypatch):
+        """The check above can fail: a tool that creates a link is outside READ_METHODS."""
+        methods = await _api_methods_called("pcloud_create_public_link", tmp_path, monkeypatch)
+        assert methods == ["getfilepublink"]
+        assert not set(methods) <= READ_METHODS
