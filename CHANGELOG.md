@@ -6,7 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-10-10
+
+### Added
+- Six tools that only read (`pcloud_get_file_info`, `pcloud_read_text_file`,
+  `pcloud_get_checksum`, `pcloud_get_file_link`, `pcloud_get_user_info`,
+  `pcloud_auth_status`) publish `readOnlyHint: true`. A gateway uses it to
+  decide whether an invalid optional argument may be dropped or must refuse the
+  call (crunchtools/constitution#35). `pcloud_list_folder` and `pcloud_search`
+  also only read but stay unannotated: their optional `path` defaults to `/`,
+  so a dropped `path` would widen the call to the whole account.
+- Tests pin every registered tool into `READ_ONLY` or `WRITES`, and check that
+  each read-only tool calls only pCloud API methods from a named read set and
+  leaves the token store untouched.
+
 ### Changed
+- Inherits constitution v1.22.0; the workflow pins move with it.
 - Constitution is now a v1.18.0 manifest: only repo-specific facts remain;
   fleet and profile rules apply by reference.
 - Constitution validation is pinned via `.github/workflows/constitution.yml`.
