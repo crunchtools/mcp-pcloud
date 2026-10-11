@@ -21,24 +21,20 @@ async def delete_file(path: str) -> str:
 
 async def rename_file(path: str, to_path: str) -> str:
     """Rename or move a file."""
-    await get_client().call(
-        "renamefile", {"path": path, "topath": to_path}, context=path
-    )
+    await get_client().call("renamefile", {"path": path, "topath": to_path}, context=path)
     return f"Renamed file {path} -> {to_path}"
 
 
 async def copy_file(path: str, to_path: str) -> str:
     """Copy a file to a new location."""
-    await get_client().call(
-        "copyfile", {"path": path, "topath": to_path}, context=path
-    )
+    await get_client().call("copyfile", {"path": path, "topath": to_path}, context=path)
     return f"Copied file {path} -> {to_path}"
 
 
 async def read_text_file(path: str) -> str:
     """Read a UTF-8 text file's contents."""
     client = get_client()
-    payload = await client.call("gettextfile", {"path": path}, context=path)
+    payload = await client.call("getfilelink", {"path": path}, context=path)
 
     hosts = payload.get("hosts") or []
     content_path = payload.get("path")

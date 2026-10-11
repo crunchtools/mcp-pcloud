@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- `pcloud_read_text_file` called `gettextfile` but parsed a `getfilelink`
+  response, so it failed on every call (pCloud rejected the credential with
+  "Log in required"). It now calls `getfilelink`, as the code already expected.
+- The content download no longer sends the `Authorization: Bearer` header to
+  the content host. It uses a separate client with no base URL and no
+  credential; the content URL is already signed.
+
 ## [2.6.0] - 2026-10-10
 
 ### Added
