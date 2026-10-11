@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-10-11
+
 ### Changed
 - **BREAKING:** `path` is now required on `pcloud_list_folder` and
   `pcloud_search`; it no longer defaults to `/`. Both tools now publish
