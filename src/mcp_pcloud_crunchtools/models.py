@@ -63,10 +63,8 @@ class PathInput(_Base):
 class ListFolderInput(_Base):
     """Arguments for listing a folder."""
 
-    path: str = Field(default="/", description="Absolute folder path (default: /)")
-    recursive: bool = Field(
-        default=False, description="Whether to list contents recursively"
-    )
+    path: str = Field(description="Absolute folder path, e.g. /Documents")
+    recursive: bool = Field(default=False, description="Whether to list contents recursively")
 
     @field_validator("path")
     @classmethod
@@ -109,7 +107,7 @@ class SearchInput(_Base):
     """Arguments for searching pCloud."""
 
     query: str = Field(description="Search text matched against file names")
-    path: str = Field(default="/", description="Folder to search within")
+    path: str = Field(description="Absolute folder path to search within, e.g. /Documents")
 
     @field_validator("query")
     @classmethod

@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING:** `path` is now required on `pcloud_list_folder` and
+  `pcloud_search`; it no longer defaults to `/`. Both tools now publish
+  `readOnlyHint: true`. A required argument is never dropped by a gateway, so
+  an annotated call cannot widen to the whole account.
+
 ### Fixed
 - `pcloud_read_text_file` called `gettextfile` but parsed a `getfilelink`
   response, so it failed on every call (pCloud rejected the credential with

@@ -56,13 +56,16 @@ def test_move_validates_both_paths():
 
 def test_empty_query_rejected():
     with pytest.raises(ValidationError):
-        SearchInput(query="  ")
+        SearchInput(query="  ", path="/")
 
 
 def test_long_query_rejected():
     with pytest.raises(ValidationError):
-        SearchInput(query="x" * 500)
+        SearchInput(query="x" * 500, path="/")
 
 
-def test_search_defaults_to_root():
-    assert SearchInput(query="report").path == "/"
+def test_path_is_required_on_list_and_search():
+    with pytest.raises(ValidationError):
+        SearchInput(query="report")
+    with pytest.raises(ValidationError):
+        ListFolderInput()

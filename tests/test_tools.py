@@ -307,15 +307,12 @@ READ_ONLY = frozenset(
         "pcloud_get_file_link",
         "pcloud_get_user_info",
         "pcloud_auth_status",
+        "pcloud_list_folder",
+        "pcloud_search",
     }
 )
 WRITES = frozenset(
     {
-        # These two only read (listfolder, search), but their optional `path`
-        # defaults to "/". Annotated, a gateway could drop an invalid `path` and
-        # the call would cover the whole account, so they stay unannotated.
-        "pcloud_list_folder",
-        "pcloud_search",
         "pcloud_create_folder",
         "pcloud_delete_folder",
         "pcloud_rename_folder",
@@ -343,6 +340,8 @@ READ_METHODS = frozenset(
         # Mints a time-limited download URL; creates nothing in the account.
         "getfilelink",
         "userinfo",
+        "listfolder",
+        "search",
     }
 )
 
@@ -365,6 +364,14 @@ READ_ONLY_CALLS: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
     ),
     "pcloud_get_user_info": ({}, {"result": 0, "email": "a@b.c", "quota": 10}),
     "pcloud_auth_status": ({}, {"result": 0, "email": "a@b.c"}),
+    "pcloud_list_folder": (
+        {"path": "/Documents"},
+        {"result": 0, "metadata": {"contents": [FILE_META]}},
+    ),
+    "pcloud_search": (
+        {"query": "report", "path": "/Documents"},
+        {"result": 0, "metadata": [FILE_META]},
+    ),
 }
 
 
@@ -422,6 +429,11 @@ class TestReadOnlyAnnotation:
             and tool.annotations.model_dump(by_alias=True).get("readOnlyHint") is True
         }
         assert annotated == READ_ONLY
+
+    @pytest.mark.parametrize("name", ["pcloud_list_folder", "pcloud_search"])
+    async def test_path_is_required(self, name):
+        tool = next(t for t in await mcp.list_tools() if t.name == name)
+        assert "path" in tool.parameters["required"]
 
     @pytest.mark.parametrize("name", sorted(READ_ONLY))
     async def test_read_only_tool_calls_only_read_methods(self, name, tmp_path, monkeypatch):

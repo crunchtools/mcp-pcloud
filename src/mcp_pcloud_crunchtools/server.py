@@ -30,9 +30,6 @@ logger = logging.getLogger(__name__)
 # A gateway drops an invalid optional argument only on a tool annotated read-only;
 # on anything else it refuses the call. Only tools that change nothing in pCloud,
 # in the token store, or in the pending-login slot get this.
-# pcloud_list_folder and pcloud_search only read, but stay unannotated: their
-# optional `path` defaults to "/", so a dropped `path` would list or search the
-# whole account and escape a folder the caller was scoped to.
 READ_ONLY = {"readOnlyHint": True}
 
 mcp: FastMCP = FastMCP("mcp-pcloud-crunchtools", version="2.6.0")
@@ -43,8 +40,8 @@ def _safe(exc: UserError) -> str:
     return f"Error: {exc}"
 
 
-@mcp.tool()
-async def pcloud_list_folder(path: str = "/", recursive: bool = False) -> str:
+@mcp.tool(annotations=READ_ONLY)
+async def pcloud_list_folder(path: str, recursive: bool = False) -> str:
     """List contents of a folder in pCloud with file and folder metadata."""
     try:
         args = ListFolderInput(path=path, recursive=recursive)
@@ -173,8 +170,8 @@ async def pcloud_create_public_link(path: str) -> str:
         return _safe(exc)
 
 
-@mcp.tool()
-async def pcloud_search(query: str, path: str = "/") -> str:
+@mcp.tool(annotations=READ_ONLY)
+async def pcloud_search(query: str, path: str) -> str:
     """Search pCloud for files and folders whose names match a query."""
     try:
         args = SearchInput(query=query, path=path)
