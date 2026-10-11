@@ -56,7 +56,7 @@ Session-token support was added in 2.1.0 as a stopgap for accounts with no provi
 | `pcloud_delete_file` | tools/files.py | `deletefile` | yes |
 | `pcloud_rename_file` | tools/files.py | `renamefile` | yes |
 | `pcloud_copy_file` | tools/files.py | `copyfile` | yes |
-| `pcloud_read_text_file` | tools/files.py | `gettextfile` | no |
+| `pcloud_read_text_file` | tools/files.py | `getfilelink` | no |
 | `pcloud_get_checksum` | tools/files.py | `checksumfile` | no |
 | `pcloud_get_file_link` | tools/links.py | `getfilelink` | no |
 | `pcloud_create_public_link` | tools/links.py | `getfilepublink` | yes |

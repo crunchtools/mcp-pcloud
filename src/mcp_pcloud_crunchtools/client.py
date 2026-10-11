@@ -49,6 +49,7 @@ class PCloudClient:
         """Initialize the client without opening a connection."""
         self._config = get_config()
         self._client: httpx.AsyncClient | None = None
+        self._content_client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Return the shared async client, creating it on first use.
@@ -69,10 +70,13 @@ class PCloudClient:
         return self._client
 
     async def close(self) -> None:
-        """Close the underlying HTTP client."""
+        """Close the underlying HTTP clients."""
         if self._client is not None:
             await self._client.aclose()
             self._client = None
+        if self._content_client is not None:
+            await self._content_client.aclose()
+            self._content_client = None
 
     def _raise_for_result(self, code: int, message: str, context: str) -> None:
         """Translate a pCloud result code into a safe user-facing error."""
@@ -134,9 +138,7 @@ class PCloudClient:
         if response.status_code in (401, 403):
             raise AuthenticationError(f"HTTP {response.status_code} from pCloud")
         if response.status_code >= 400:
-            raise PCloudApiError(
-                response.status_code, f"HTTP error from {method}"
-            )
+            raise PCloudApiError(response.status_code, f"HTTP error from {method}")
 
         if len(response.content) > MAX_RESPONSE_SIZE:
             raise PCloudApiError(0, f"Response from {method} exceeded size limit")
@@ -159,7 +161,13 @@ class PCloudClient:
         assembles the URL and passes it here so the size ceiling and
         timeout still apply.
         """
-        client = await self._get_client()
+        # Content URLs are already signed, so this client has no base URL
+        # and never carries the API credential.
+        if self._content_client is None:
+            self._content_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(REQUEST_TIMEOUT),
+            )
+        client = self._content_client
         try:
             response = await client.get(url, headers={"Accept": "text/plain"})
         except httpx.HTTPError as exc:

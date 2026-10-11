@@ -103,6 +103,31 @@ class TestFileTools:
         with patch_client(mock_response(meta), text_response("file body")):
             assert await tools.read_text_file("/a.txt") == "file body"
 
+    async def test_read_text_file_requests_getfilelink(self):
+        meta = {"result": 0, "hosts": ["c1.pcloud.com"], "path": "/dl/a.txt"}
+        with patch_client(mock_response(meta), text_response("file body")) as get:
+            await tools.read_text_file("/a.txt")
+        urls = [call.args[0] for call in get.await_args_list]
+        assert urls[0] == "/getfilelink"
+        assert "gettextfile" not in "".join(urls)
+
+    async def test_content_fetch_carries_no_authorization_header(self):
+        from mcp_pcloud_crunchtools.client import get_client
+
+        meta = {"result": 0, "hosts": ["c1.pcloud.com"], "path": "/dl/a.txt"}
+        with patch_client(mock_response(meta), text_response("file body")) as get:
+            await tools.read_text_file("/a.txt")
+        client = get_client()
+        assert (await client._get_client()).headers["Authorization"] == "Bearer test-token-value"
+        content_client = client._content_client
+        assert content_client is not None
+        assert "Authorization" not in content_client.headers
+        assert str(content_client.base_url) == ""
+        content_call = get.await_args_list[1]
+        assert content_call.args[0] == "https://c1.pcloud.com/dl/a.txt"
+        assert "Authorization" not in content_call.kwargs.get("headers", {})
+        await client.close()
+
     async def test_read_text_file_without_host_errors(self):
         with (
             patch_client(mock_response({"result": 0, "hosts": []})),
@@ -314,7 +339,6 @@ WRITES = frozenset(
 READ_METHODS = frozenset(
     {
         "stat",
-        "gettextfile",
         "checksumfile",
         # Mints a time-limited download URL; creates nothing in the account.
         "getfilelink",
