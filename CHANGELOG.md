@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-10-16
+
 ### Fixed
 - `pcloud_search` called `search`, which is not a published pCloud method and
   timed out or matched nothing against the live API. It now lists `path` with
