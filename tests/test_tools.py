@@ -174,13 +174,79 @@ class TestLinkTools:
 
 
 class TestSearchAndAccount:
-    async def test_search(self):
-        with patch_client(mock_response({"result": 0, "metadata": [FILE_META]})):
-            assert "report.pdf" in await tools.search("report", "/")
+    async def test_search_filters_listfolder_tree(self):
+        tree = {
+            "result": 0,
+            "metadata": {
+                "contents": [
+                    {"name": "Other.txt", "isfolder": False, "size": 1},
+                    {
+                        "name": "Sub",
+                        "isfolder": True,
+                        "contents": [
+                            {"name": "Gourmand-Draft.md", "isfolder": False, "size": 10},
+                        ],
+                    },
+                ]
+            },
+        }
+        with patch_client(mock_response(tree)) as get:
+            out = await tools.search("gourmand", "/Projects")
+        assert get.call_args.args[0] == "/listfolder"
+        assert get.call_args.kwargs["params"] == {"path": "/Projects", "recursive": 1}
+        assert "Gourmand-Draft.md" in out
+        assert "/Projects/Sub/Gourmand-Draft.md" in out
+        assert "Other.txt" not in out
 
     async def test_search_empty(self):
-        with patch_client(mock_response({"result": 0, "metadata": []})):
+        with patch_client(mock_response({"result": 0, "metadata": {"contents": []}})):
             assert "(empty)" in await tools.search("nothing", "/")
+
+    async def test_search_respects_depth_bound(self):
+        from mcp_pcloud_crunchtools.tools import search as search_module
+
+        node: dict[str, Any] = {"name": "hit-deep", "isfolder": False}
+        for i in range(search_module.MAX_DEPTH):
+            node = {"name": f"d{i}", "isfolder": True, "contents": [node]}
+        with patch_client(mock_response({"result": 0, "metadata": {"contents": [node]}})):
+            out = await tools.search("hit-deep", "/")
+        assert "(empty)" in out
+        assert f"deeper than {search_module.MAX_DEPTH} levels" in out
+
+    async def test_search_descends_to_depth_limit(self):
+        from mcp_pcloud_crunchtools.tools import search as search_module
+
+        node: dict[str, Any] = {"name": "hit-deep", "isfolder": False}
+        for i in range(search_module.MAX_DEPTH - 1):
+            node = {"name": f"d{i}", "isfolder": True, "contents": [node]}
+        with patch_client(mock_response({"result": 0, "metadata": {"contents": [node]}})):
+            out = await tools.search("hit-deep", "/")
+        assert "hit-deep" in out
+        assert "deeper than" not in out
+
+    async def test_search_reports_depth_and_cap_together(self):
+        from mcp_pcloud_crunchtools.tools import search as search_module
+
+        deep: dict[str, Any] = {"name": "x", "isfolder": False}
+        for i in range(search_module.MAX_DEPTH):
+            deep = {"name": f"d{i}", "isfolder": True, "contents": [deep]}
+        files = [
+            {"name": f"hit{i}.txt", "isfolder": False} for i in range(search_module.MAX_RESULTS + 1)
+        ]
+        with patch_client(mock_response({"result": 0, "metadata": {"contents": [deep, *files]}})):
+            out = await tools.search("hit", "/")
+        assert "truncated" in out
+        assert "deeper than" in out
+
+    async def test_search_truncates_at_cap(self):
+        from mcp_pcloud_crunchtools.tools import search as search_module
+
+        cap = search_module.MAX_RESULTS
+        files = [{"name": f"hit{i}.txt", "isfolder": False} for i in range(cap + 5)]
+        with patch_client(mock_response({"result": 0, "metadata": {"contents": files}})):
+            out = await tools.search("hit", "/")
+        assert out.count("[file]") == cap
+        assert "truncated" in out
 
     async def test_get_user_info(self):
         payload = {
@@ -341,7 +407,6 @@ READ_METHODS = frozenset(
         "getfilelink",
         "userinfo",
         "listfolder",
-        "search",
     }
 )
 
@@ -370,7 +435,7 @@ READ_ONLY_CALLS: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
     ),
     "pcloud_search": (
         {"query": "report", "path": "/Documents"},
-        {"result": 0, "metadata": [FILE_META]},
+        {"result": 0, "metadata": {"contents": [FILE_META]}},
     ),
 }
 

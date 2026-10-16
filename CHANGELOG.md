@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- `pcloud_search` called `search`, which is not a published pCloud method and
+  timed out or matched nothing against the live API. It now lists `path` with
+  `listfolder` (`recursive=1`) and matches names case-insensitively by
+  substring. The walk is bounded to 8 levels and 100 results; the output says
+  when it truncated. The tool name and signature are unchanged.
+
 ## [3.0.0] - 2026-10-11
 
 ### Changed
