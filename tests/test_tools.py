@@ -209,7 +209,34 @@ class TestSearchAndAccount:
         for i in range(search_module.MAX_DEPTH):
             node = {"name": f"d{i}", "isfolder": True, "contents": [node]}
         with patch_client(mock_response({"result": 0, "metadata": {"contents": [node]}})):
-            assert "(empty)" in await tools.search("hit-deep", "/")
+            out = await tools.search("hit-deep", "/")
+        assert "(empty)" in out
+        assert f"deeper than {search_module.MAX_DEPTH} levels" in out
+
+    async def test_search_descends_to_depth_limit(self):
+        from mcp_pcloud_crunchtools.tools import search as search_module
+
+        node: dict[str, Any] = {"name": "hit-deep", "isfolder": False}
+        for i in range(search_module.MAX_DEPTH - 1):
+            node = {"name": f"d{i}", "isfolder": True, "contents": [node]}
+        with patch_client(mock_response({"result": 0, "metadata": {"contents": [node]}})):
+            out = await tools.search("hit-deep", "/")
+        assert "hit-deep" in out
+        assert "deeper than" not in out
+
+    async def test_search_reports_depth_and_cap_together(self):
+        from mcp_pcloud_crunchtools.tools import search as search_module
+
+        deep: dict[str, Any] = {"name": "x", "isfolder": False}
+        for i in range(search_module.MAX_DEPTH):
+            deep = {"name": f"d{i}", "isfolder": True, "contents": [deep]}
+        files = [
+            {"name": f"hit{i}.txt", "isfolder": False} for i in range(search_module.MAX_RESULTS + 1)
+        ]
+        with patch_client(mock_response({"result": 0, "metadata": {"contents": [deep, *files]}})):
+            out = await tools.search("hit", "/")
+        assert "truncated" in out
+        assert "deeper than" in out
 
     async def test_search_truncates_at_cap(self):
         from mcp_pcloud_crunchtools.tools import search as search_module

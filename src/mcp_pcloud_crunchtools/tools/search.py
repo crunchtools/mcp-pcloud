@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any
 
 from ..client import get_client
@@ -11,33 +12,31 @@ MAX_DEPTH = 8
 MAX_RESULTS = 100
 
 
-def _walk(
-    contents: list[dict[str, Any]],
-    parent: str,
-    needle: str,
-    depth: int,
-    matches: list[dict[str, Any]],
-    too_deep: list[str],
-) -> bool:
-    """Collect name matches into ``matches``; return True if the cap cut the walk short.
+@dataclass
+class _Walk:
+    """Search state: the needle, collected matches, and whether the depth bound hid folders."""
 
-    Folders with contents that sit past MAX_DEPTH are recorded in ``too_deep``.
-    """
-    for item in contents:
-        name = str(item.get("name", ""))
-        path = f"{parent.rstrip('/')}/{name}"
-        if needle in name.lower():
-            if len(matches) >= MAX_RESULTS:
+    needle: str
+    matches: list[dict[str, Any]] = field(default_factory=list)
+    too_deep: bool = False
+
+    def run(self, contents: list[dict[str, Any]], parent: str, depth: int) -> bool:
+        """Collect name matches; return True if the result cap cut the walk short."""
+        for item in contents:
+            name = str(item.get("name", ""))
+            path = f"{parent.rstrip('/')}/{name}"
+            if self.needle in name.lower():
+                if len(self.matches) >= MAX_RESULTS:
+                    return True
+                self.matches.append({**item, "path": item.get("path", path)})
+            children: list[dict[str, Any]] = item.get("contents") or []
+            if not (item.get("isfolder") and children):
+                continue
+            if depth >= MAX_DEPTH:
+                self.too_deep = True
+            elif self.run(children, path, depth + 1):
                 return True
-            matches.append({**item, "path": item.get("path", path)})
-        children: list[dict[str, Any]] = item.get("contents") or []
-        if not (item.get("isfolder") and children):
-            continue
-        if depth >= MAX_DEPTH:
-            too_deep.append(path)
-        elif _walk(children, path, needle, depth + 1, matches, too_deep):
-            return True
-    return False
+        return False
 
 
 async def search(query: str, path: str) -> str:
@@ -49,13 +48,12 @@ async def search(query: str, path: str) -> str:
     """
     payload = await get_client().call("listfolder", {"path": path, "recursive": 1}, context=path)
     contents = payload.get("metadata", {}).get("contents", [])
-    matches: list[dict[str, Any]] = []
-    too_deep: list[str] = []
-    truncated = _walk(contents, path, query.lower(), 1, matches, too_deep)
+    walk = _Walk(query.lower())
+    truncated = walk.run(contents, path, 1)
     header = f"Search results for '{query}' under {path}:"
-    out = format_listing(matches, header)
+    out = format_listing(walk.matches, header)
     if truncated:
         out += f"\n\n(truncated at {MAX_RESULTS} results; narrow the query or path)"
-    elif too_deep:
+    if walk.too_deep:
         out += f"\n\n(folders deeper than {MAX_DEPTH} levels were not searched)"
     return out
