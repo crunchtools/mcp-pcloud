@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 # in the token store, or in the pending-login slot get this.
 READ_ONLY = {"readOnlyHint": True}
 
-mcp: FastMCP = FastMCP("mcp-pcloud-crunchtools", version="3.0.0")
+mcp: FastMCP = FastMCP("mcp-pcloud-crunchtools", version="3.0.1")
 
 
 def _safe(exc: UserError) -> str:

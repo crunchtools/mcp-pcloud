@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-pcloud-crunchtools"
-version = "3.0.0"
+version = "3.0.1"
 description = "Secure MCP server for pCloud cloud storage"
 readme = "README.md"
 requires-python = ">=3.11"
