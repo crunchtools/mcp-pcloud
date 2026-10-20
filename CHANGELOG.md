@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-10-20
+
 ### Changed
 
 - Container base images pinned to `quay.io/hummingbird/python:3.14*` instead of
