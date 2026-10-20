@@ -1,5 +1,6 @@
 """Mocked tests for every pCloud tool function."""
 
+import importlib
 import json
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -203,7 +204,8 @@ class TestSearchAndAccount:
             assert "(empty)" in await tools.search("nothing", "/")
 
     async def test_search_respects_depth_bound(self):
-        from mcp_pcloud_crunchtools.tools import search as search_module
+        # `tools.search` is the function, which shadows the submodule of the same name.
+        search_module = importlib.import_module("mcp_pcloud_crunchtools.tools.search")
 
         node: dict[str, Any] = {"name": "hit-deep", "isfolder": False}
         for i in range(search_module.MAX_DEPTH):
@@ -214,7 +216,8 @@ class TestSearchAndAccount:
         assert f"deeper than {search_module.MAX_DEPTH} levels" in out
 
     async def test_search_descends_to_depth_limit(self):
-        from mcp_pcloud_crunchtools.tools import search as search_module
+        # `tools.search` is the function, which shadows the submodule of the same name.
+        search_module = importlib.import_module("mcp_pcloud_crunchtools.tools.search")
 
         node: dict[str, Any] = {"name": "hit-deep", "isfolder": False}
         for i in range(search_module.MAX_DEPTH - 1):
@@ -225,7 +228,8 @@ class TestSearchAndAccount:
         assert "deeper than" not in out
 
     async def test_search_reports_depth_and_cap_together(self):
-        from mcp_pcloud_crunchtools.tools import search as search_module
+        # `tools.search` is the function, which shadows the submodule of the same name.
+        search_module = importlib.import_module("mcp_pcloud_crunchtools.tools.search")
 
         deep: dict[str, Any] = {"name": "x", "isfolder": False}
         for i in range(search_module.MAX_DEPTH):
@@ -239,7 +243,8 @@ class TestSearchAndAccount:
         assert "deeper than" in out
 
     async def test_search_truncates_at_cap(self):
-        from mcp_pcloud_crunchtools.tools import search as search_module
+        # `tools.search` is the function, which shadows the submodule of the same name.
+        search_module = importlib.import_module("mcp_pcloud_crunchtools.tools.search")
 
         cap = search_module.MAX_RESULTS
         files = [{"name": f"hit{i}.txt", "isfolder": False} for i in range(cap + 5)]
