@@ -1,4 +1,4 @@
-FROM quay.io/hummingbird/python:latest-fips-builder AS builder
+FROM quay.io/hummingbird/python:3.14-fips-builder AS builder
 USER 0
 WORKDIR /app
 RUN python3 -m venv /app/venv
@@ -7,7 +7,7 @@ COPY pyproject.toml README.md ./
 COPY src/ ./src/
 RUN pip install --no-cache-dir .
 
-FROM quay.io/hummingbird/python:latest-fips
+FROM quay.io/hummingbird/python:3.14-fips
 LABEL name="mcp-pcloud-crunchtools" \
       version="3.0.1" \
       summary="Secure MCP server for pCloud cloud storage" \
