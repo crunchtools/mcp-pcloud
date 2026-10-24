@@ -36,6 +36,11 @@ FOLDER_META = {
 }
 
 
+def _listing(contents: list[dict[str, Any]]) -> httpx.Response:
+    """One non-recursive listfolder response."""
+    return mock_response({"result": 0, "metadata": {"contents": contents}})
+
+
 class TestFolderTools:
     async def test_list_folder(self):
         payload = {"result": 0, "metadata": {"contents": [FILE_META, FOLDER_META]}}
@@ -176,42 +181,50 @@ class TestLinkTools:
 
 class TestSearchAndAccount:
     async def test_search_filters_listfolder_tree(self):
-        tree = {
-            "result": 0,
-            "metadata": {
-                "contents": [
-                    {"name": "Other.txt", "isfolder": False, "size": 1},
-                    {
-                        "name": "Sub",
-                        "isfolder": True,
-                        "contents": [
-                            {"name": "Gourmand-Draft.md", "isfolder": False, "size": 10},
-                        ],
-                    },
-                ]
-            },
-        }
-        with patch_client(mock_response(tree)) as get:
+        top = [
+            {"name": "Other.txt", "isfolder": False, "size": 1},
+            {"name": "Sub", "isfolder": True},
+        ]
+        sub = [{"name": "Gourmand-Draft.md", "isfolder": False, "size": 10}]
+        with patch_client(_listing(top), _listing(sub)) as get:
             out = await tools.search("gourmand", "/Projects")
-        assert get.call_args.args[0] == "/listfolder"
-        assert get.call_args.kwargs["params"] == {"path": "/Projects", "recursive": 1}
+        calls = [(call.args[0], call.kwargs["params"]) for call in get.await_args_list]
+        assert calls == [
+            ("/listfolder", {"path": "/Projects"}),
+            ("/listfolder", {"path": "/Projects/Sub"}),
+        ]
         assert "Gourmand-Draft.md" in out
         assert "/Projects/Sub/Gourmand-Draft.md" in out
         assert "Other.txt" not in out
 
+    async def test_search_at_root(self):
+        top = [
+            {"name": "Documents", "isfolder": True, "path": "/Documents"},
+            {"name": "notes.txt", "isfolder": False},
+        ]
+        docs = [{"name": "Notes-2026.md", "isfolder": False, "path": "/Documents/Notes-2026.md"}]
+        with patch_client(_listing(top), _listing(docs)) as get:
+            out = await tools.search("notes", "/")
+        paths = [call.kwargs["params"]["path"] for call in get.await_args_list]
+        assert paths == ["/", "/Documents"]
+        assert "recursive" not in get.await_args_list[0].kwargs["params"]
+        assert "/notes.txt" in out
+        assert "/Documents/Notes-2026.md" in out
+
     async def test_search_empty(self):
-        with patch_client(mock_response({"result": 0, "metadata": {"contents": []}})):
+        with patch_client(_listing([])):
             assert "(empty)" in await tools.search("nothing", "/")
 
     async def test_search_respects_depth_bound(self):
         # `tools.search` is the function, which shadows the submodule of the same name.
         search_module = importlib.import_module("mcp_pcloud_crunchtools.tools.search")
 
-        node: dict[str, Any] = {"name": "hit-deep", "isfolder": False}
-        for i in range(search_module.MAX_DEPTH):
-            node = {"name": f"d{i}", "isfolder": True, "contents": [node]}
-        with patch_client(mock_response({"result": 0, "metadata": {"contents": [node]}})):
+        levels = [
+            _listing([{"name": f"d{i}", "isfolder": True}]) for i in range(search_module.MAX_DEPTH)
+        ]
+        with patch_client(*levels) as get:
             out = await tools.search("hit-deep", "/")
+        assert get.await_count == search_module.MAX_DEPTH
         assert "(empty)" in out
         assert f"deeper than {search_module.MAX_DEPTH} levels" in out
 
@@ -219,10 +232,12 @@ class TestSearchAndAccount:
         # `tools.search` is the function, which shadows the submodule of the same name.
         search_module = importlib.import_module("mcp_pcloud_crunchtools.tools.search")
 
-        node: dict[str, Any] = {"name": "hit-deep", "isfolder": False}
-        for i in range(search_module.MAX_DEPTH - 1):
-            node = {"name": f"d{i}", "isfolder": True, "contents": [node]}
-        with patch_client(mock_response({"result": 0, "metadata": {"contents": [node]}})):
+        levels = [
+            _listing([{"name": f"d{i}", "isfolder": True}])
+            for i in range(search_module.MAX_DEPTH - 1)
+        ]
+        levels.append(_listing([{"name": "hit-deep", "isfolder": False}]))
+        with patch_client(*levels):
             out = await tools.search("hit-deep", "/")
         assert "hit-deep" in out
         assert "deeper than" not in out
@@ -231,13 +246,15 @@ class TestSearchAndAccount:
         # `tools.search` is the function, which shadows the submodule of the same name.
         search_module = importlib.import_module("mcp_pcloud_crunchtools.tools.search")
 
-        deep: dict[str, Any] = {"name": "x", "isfolder": False}
-        for i in range(search_module.MAX_DEPTH):
-            deep = {"name": f"d{i}", "isfolder": True, "contents": [deep]}
         files = [
             {"name": f"hit{i}.txt", "isfolder": False} for i in range(search_module.MAX_RESULTS + 1)
         ]
-        with patch_client(mock_response({"result": 0, "metadata": {"contents": [deep, *files]}})):
+        levels = [
+            _listing([{"name": f"d{i}", "isfolder": True}])
+            for i in range(search_module.MAX_DEPTH - 1)
+        ]
+        levels.append(_listing([{"name": "deeper", "isfolder": True}, *files]))
+        with patch_client(*levels):
             out = await tools.search("hit", "/")
         assert "truncated" in out
         assert "deeper than" in out
@@ -248,10 +265,23 @@ class TestSearchAndAccount:
 
         cap = search_module.MAX_RESULTS
         files = [{"name": f"hit{i}.txt", "isfolder": False} for i in range(cap + 5)]
-        with patch_client(mock_response({"result": 0, "metadata": {"contents": files}})):
+        with patch_client(_listing(files)):
             out = await tools.search("hit", "/")
         assert out.count("[file]") == cap
         assert "truncated" in out
+
+    async def test_search_stops_at_listing_cap(self):
+        # `tools.search` is the function, which shadows the submodule of the same name.
+        search_module = importlib.import_module("mcp_pcloud_crunchtools.tools.search")
+
+        cap = search_module.MAX_LISTINGS
+        wide = [{"name": f"f{i}", "isfolder": True} for i in range(cap + 10)]
+        responses = [_listing(wide)] + [_listing([]) for _ in range(cap)]
+        with patch_client(*responses) as get:
+            out = await tools.search("nothing", "/")
+        assert get.await_count == cap
+        assert f"stopped after listing {cap} folders; narrow the path" in out
+        assert "truncated" not in out
 
     async def test_get_user_info(self):
         payload = {
