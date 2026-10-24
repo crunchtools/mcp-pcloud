@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `pcloud_search` failed at `/` (pCloud error 1101) and on large folders such as
+  `/Documents`, where one recursive `listfolder` outgrew the 10 MB response
+  limit. It now walks the tree breadth-first with one non-recursive
+  `listfolder` per folder. The depth (8) and result (100) bounds are unchanged;
+  a new bound of 200 listings stops the walk and tells the caller to narrow the
+  path (RT #1542).
+
 ## [3.1.0] - 2026-10-20
 
 ### Changed
