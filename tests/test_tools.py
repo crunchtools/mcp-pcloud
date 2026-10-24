@@ -211,6 +211,26 @@ class TestSearchAndAccount:
         assert "/notes.txt" in out
         assert "/Documents/Notes-2026.md" in out
 
+    async def test_search_lists_siblings_before_descendants(self):
+        root = [{"name": "A", "isfolder": True}, {"name": "B", "isfolder": True}]
+        a = [{"name": "A1", "isfolder": True}]
+        b = [{"name": "B1", "isfolder": True}]
+        with patch_client(
+            _listing(root), _listing(a), _listing(b), _listing([]), _listing([])
+        ) as get:
+            await tools.search("nothing", "/")
+        paths = [call.kwargs["params"]["path"] for call in get.await_args_list]
+        assert paths == ["/", "/A", "/B", "/A/A1", "/B/B1"]
+
+    async def test_search_fails_when_a_batched_listing_fails(self):
+        root = [{"name": "A", "isfolder": True}, {"name": "Gone", "isfolder": True}]
+        missing = mock_response({"result": 2005, "error": "Directory does not exist."})
+        with (
+            patch_client(_listing(root), _listing([]), missing),
+            pytest.raises(PathNotFoundError),
+        ):
+            await tools.search("nothing", "/")
+
     async def test_search_empty(self):
         with patch_client(_listing([])):
             assert "(empty)" in await tools.search("nothing", "/")
