@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir .
 
 FROM quay.io/hummingbird/python:3.14-fips
 LABEL name="mcp-pcloud-crunchtools" \
-      version="3.1.0" \
+      version="3.2.0" \
       summary="Secure MCP server for pCloud cloud storage" \
       maintainer="crunchtools.com" \
       org.opencontainers.image.source="https://github.com/crunchtools/mcp-pcloud" \
