@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-10-31
+
 ### Security
 
 - Upgraded locked dependencies within their declared ranges to clear the

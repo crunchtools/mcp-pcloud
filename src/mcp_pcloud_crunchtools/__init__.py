@@ -40,7 +40,7 @@ import sys
 
 from .server import mcp
 
-__version__ = "3.2.0"
+__version__ = "3.2.1"
 __all__ = ["main", "mcp"]
 
 DEFAULT_PORT = 8028
