@@ -20,9 +20,7 @@ async def list_folder(path: str, recursive: bool) -> str:
 
 async def create_folder(path: str) -> str:
     """Create a folder, succeeding if it already exists."""
-    payload = await get_client().call(
-        "createfolderifnotexists", {"path": path}, context=path
-    )
+    payload = await get_client().call("createfolderifnotexists", {"path": path}, context=path)
     created = payload.get("created", True)
     verb = "Created" if created else "Already present"
     return f"{verb}: {path}"
@@ -38,15 +36,11 @@ async def delete_folder(path: str, recursive: bool) -> str:
 
 async def rename_folder(path: str, to_path: str) -> str:
     """Rename or move a folder."""
-    await get_client().call(
-        "renamefolder", {"path": path, "topath": to_path}, context=path
-    )
+    await get_client().call("renamefolder", {"path": path, "topath": to_path}, context=path)
     return f"Renamed folder {path} -> {to_path}"
 
 
 async def copy_folder(path: str, to_path: str) -> str:
     """Copy a folder to a new location."""
-    await get_client().call(
-        "copyfolder", {"path": path, "topath": to_path}, context=path
-    )
+    await get_client().call("copyfolder", {"path": path, "topath": to_path}, context=path)
     return f"Copied folder {path} -> {to_path}"
