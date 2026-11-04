@@ -40,3 +40,14 @@ check = "CH012-copy_paste_detection"
 path = "src/mcp_pcloud_crunchtools/__init__.py"
 justification = "Flagged as '100% similar' to _CallbackHandler.do_GET in auth.py. The two functions do unrelated things -- main() wires up argparse subcommands and dispatches to _run_login/_run_server; do_GET parses an OAuth callback query string and writes an HTTP response. The similarity score is coincidental on statement count/shape (9 statements each), not on any actual duplicated logic; there is nothing to extract a shared helper from."
 classification = "gourmand_bug"
+
+# Ruff is not missing; it moved. Gourmand's IF001 looks for a literal
+# `ruff-check` hook id, and under python-sdlc (constitution XII, v1.30.0) ruff
+# runs inside the `sdlc-commit` hook, configured by [tool.ruff] in
+# pyproject.toml. Same precedent as trentina.
+[[exceptions]]
+check = "linter_configuration"
+path = ".pre-commit-config.yaml"
+pattern = "ruff-check"
+justification = "ruff runs inside the sdlc-commit hook from python-sdlc (constitution XII v1.30.0), configured by [tool.ruff] in pyproject.toml; Gourmand looks for a literal ruff hook id"
+classification = "by_design"

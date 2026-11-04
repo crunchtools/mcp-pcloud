@@ -25,9 +25,7 @@ async def create_public_link(path: str) -> str:
 
     This publishes the file to anyone holding the URL.
     """
-    payload = await get_client().call(
-        "getfilepublink", {"path": path}, context=path
-    )
+    payload = await get_client().call("getfilepublink", {"path": path}, context=path)
     link = payload.get("link")
     if not link:
         raise PCloudApiError(0, "pCloud returned no public link")
