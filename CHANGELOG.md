@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [3.2.2] - 2026-11-07
+
+### Changed
+- `fastmcp` 4.1.4 -> 4.1.6 and `pytest-asyncio` 1.4.1 -> 1.4.1.post1, both
+  within their declared ranges (#67, #68).
+
+This is also the first release of this service deployed by the RT `Deploy`
+queue rather than by the nightly fleet auto-update. Its unit now carries
+`io.crunchtools.deploy=deployer` and no `io.containers.autoupdate` label, so a
+change reaches production when a ticket names a commit -- with a maintenance
+window, a health probe that has to hold, and one automatic rollback -- and not
+because a container happened to restart.
+
 ## [3.2.1] - 2026-10-31
 
 ### Security
