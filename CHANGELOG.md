@@ -6,6 +6,60 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-11-09
+
+### Fixed
+
+- **The response cap was checked after the body was already in memory.** All
+  three read paths — the API, a content download and the OAuth token exchange —
+  compared `len(response.content)` once the whole body had arrived, so the
+  memory the limit exists to protect had already been spent by the time it
+  looked. All three now read in bounded pieces, measured before each chunk is
+  copied in, because `aiter_bytes()` promises nothing about chunk size: one
+  chunk can be the whole body. The token exchange gets its own, smaller cap —
+  a token response is a handful of JSON fields, and anything page-sized
+  answering on that URL is not a token.
+
+- **An error says which site answered, and with what.** `Malformed JSON from
+  listfolder` gave a reader nothing to act on, which is the shape that cost an
+  afternoon on mcp-wordpress (RT #1596): a Cloudflare challenge page is valid
+  HTTP and invalid JSON, and the error blamed the parser. Failures now name the
+  method, the full requested URL, the status, the content-type and a bounded
+  body snippet.
+
+  A content URL is signed, so naming it is only safe because the signature is
+  taken out first: userinfo is dropped and credential-shaped query parameters
+  (`code`, `auth`, `access_token`, …) are replaced. The token exchange quotes
+  no body at all — it is the one endpoint whose body is a credential.
+
+- **A content download honours the charset it was given.** This path replaced
+  `response.text`, which read the declared charset, so a first version that
+  decoded as UTF-8 unconditionally would have returned a Latin-1 document with
+  replacement characters where its accents were.
+
+- **A transport failure names the request.** `Request to listfolder failed`
+  named a method and not a URL, and httpx's own message does not reliably
+  carry one.
+
+### Added
+
+- **The client says what it is**, on all three paths:
+  `User-Agent: mcp-pcloud-crunchtools/<version> (+<repo url>)`, with the
+  version read from installed package metadata so it cannot drift from
+  `pyproject.toml`. httpx otherwise sends `python-httpx/<version>`, which is
+  what bot protection answers with a challenge page instead of the API.
+
+### Changed
+
+- The suite rides a `MockTransport` rather than patching
+  `httpx.AsyncClient.get` and `httpx.Client.post`. A mock standing in for a
+  convenience method cannot see the header the client adds or the bounded read
+  it performs, and — found while converting it — a patch on a method the code
+  no longer calls does not fail, it lets the test reach the real network.
+
+- Constitution pin v1.31.0 → v1.36.0, which is where the machine check for all
+  of the above lives (MCP Server profile 1.8.0, Layer 3).
+
 ## [3.2.2] - 2026-11-07
 
 ### Changed

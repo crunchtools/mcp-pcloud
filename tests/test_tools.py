@@ -3,7 +3,7 @@
 import importlib
 import json
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -19,7 +19,14 @@ from mcp_pcloud_crunchtools.errors import (
     TwoFactorRequiredError,
 )
 from mcp_pcloud_crunchtools.server import mcp
-from tests.helpers import mock_response, patch_client, text_response
+from tests.helpers import (
+    mock_response,
+    params_of,
+    patch_client,
+    path_of,
+    sent_request,
+    text_response,
+)
 
 FILE_META = {
     "name": "report.pdf",
@@ -44,16 +51,16 @@ def _listing(contents: list[dict[str, Any]]) -> httpx.Response:
 class TestFolderTools:
     async def test_list_folder(self):
         payload = {"result": 0, "metadata": {"contents": [FILE_META, FOLDER_META]}}
-        with patch_client(mock_response(payload)) as get:
+        with patch_client(mock_response(payload)) as sent:
             out = await tools.list_folder("/Documents", False)
         assert "report.pdf" in out
         assert "Documents/" in out
-        assert get.call_args.kwargs["params"] == {"path": "/Documents"}
+        assert params_of(sent.call_args) == {"path": "/Documents"}
 
     async def test_list_folder_recursive_sets_flag(self):
-        with patch_client(mock_response({"result": 0, "metadata": {"contents": []}})) as get:
+        with patch_client(mock_response({"result": 0, "metadata": {"contents": []}})) as sent:
             out = await tools.list_folder("/", True)
-        assert get.call_args.kwargs["params"]["recursive"] == 1
+        assert params_of(sent.call_args)["recursive"] == "1"
         assert "(empty)" in out
 
     async def test_create_folder(self):
@@ -65,15 +72,15 @@ class TestFolderTools:
             assert "Already present" in await tools.create_folder("/New")
 
     async def test_delete_folder_non_recursive(self):
-        with patch_client(mock_response({"result": 0})) as get:
+        with patch_client(mock_response({"result": 0})) as sent:
             out = await tools.delete_folder("/Old", False)
-        assert get.call_args.args[0] == "/deletefolder"
+        assert path_of(sent.call_args) == "/deletefolder"
         assert "and its contents" not in out
 
     async def test_delete_folder_recursive(self):
-        with patch_client(mock_response({"result": 0})) as get:
+        with patch_client(mock_response({"result": 0})) as sent:
             out = await tools.delete_folder("/Old", True)
-        assert get.call_args.args[0] == "/deletefolderrecursive"
+        assert path_of(sent.call_args) == "/deletefolderrecursive"
         assert "and its contents" in out
 
     async def test_rename_folder(self):
@@ -111,17 +118,17 @@ class TestFileTools:
 
     async def test_read_text_file_requests_getfilelink(self):
         meta = {"result": 0, "hosts": ["c1.pcloud.com"], "path": "/dl/a.txt"}
-        with patch_client(mock_response(meta), text_response("file body")) as get:
+        with patch_client(mock_response(meta), text_response("file body")) as sent:
             await tools.read_text_file("/a.txt")
-        urls = [call.args[0] for call in get.await_args_list]
-        assert urls[0] == "/getfilelink"
-        assert "gettextfile" not in "".join(urls)
+        paths = [path_of(call) for call in sent.await_args_list]
+        assert paths[0] == "/getfilelink"
+        assert "gettextfile" not in "".join(paths)
 
     async def test_content_fetch_carries_no_authorization_header(self):
         from mcp_pcloud_crunchtools.client import get_client
 
         meta = {"result": 0, "hosts": ["c1.pcloud.com"], "path": "/dl/a.txt"}
-        with patch_client(mock_response(meta), text_response("file body")) as get:
+        with patch_client(mock_response(meta), text_response("file body")) as sent:
             await tools.read_text_file("/a.txt")
         client = get_client()
         assert (await client._get_client()).headers["Authorization"] == "Bearer test-token-value"
@@ -129,9 +136,9 @@ class TestFileTools:
         assert content_client is not None
         assert "Authorization" not in content_client.headers
         assert str(content_client.base_url) == ""
-        content_call = get.await_args_list[1]
-        assert content_call.args[0] == "https://c1.pcloud.com/dl/a.txt"
-        assert "Authorization" not in content_call.kwargs.get("headers", {})
+        content_request = sent_request(sent.await_args_list[1])
+        assert str(content_request.url) == "https://c1.pcloud.com/dl/a.txt"
+        assert "Authorization" not in content_request.headers
         await client.close()
 
     async def test_read_text_file_without_host_errors(self):
@@ -186,9 +193,9 @@ class TestSearchAndAccount:
             {"name": "Sub", "isfolder": True},
         ]
         sub = [{"name": "Gourmand-Draft.md", "isfolder": False, "size": 10}]
-        with patch_client(_listing(top), _listing(sub)) as get:
+        with patch_client(_listing(top), _listing(sub)) as sent:
             out = await tools.search("gourmand", "/Projects")
-        calls = [(call.args[0], call.kwargs["params"]) for call in get.await_args_list]
+        calls = [(path_of(call), params_of(call)) for call in sent.await_args_list]
         assert calls == [
             ("/listfolder", {"path": "/Projects"}),
             ("/listfolder", {"path": "/Projects/Sub"}),
@@ -203,11 +210,11 @@ class TestSearchAndAccount:
             {"name": "notes.txt", "isfolder": False},
         ]
         docs = [{"name": "Notes-2026.md", "isfolder": False, "path": "/Documents/Notes-2026.md"}]
-        with patch_client(_listing(top), _listing(docs)) as get:
+        with patch_client(_listing(top), _listing(docs)) as sent:
             out = await tools.search("notes", "/")
-        paths = [call.kwargs["params"]["path"] for call in get.await_args_list]
+        paths = [params_of(call)["path"] for call in sent.await_args_list]
         assert paths == ["/", "/Documents"]
-        assert "recursive" not in get.await_args_list[0].kwargs["params"]
+        assert "recursive" not in params_of(sent.await_args_list[0])
         assert "/notes.txt" in out
         assert "/Documents/Notes-2026.md" in out
 
@@ -217,9 +224,9 @@ class TestSearchAndAccount:
         b = [{"name": "B1", "isfolder": True}]
         with patch_client(
             _listing(root), _listing(a), _listing(b), _listing([]), _listing([])
-        ) as get:
+        ) as sent:
             await tools.search("nothing", "/")
-        paths = [call.kwargs["params"]["path"] for call in get.await_args_list]
+        paths = [params_of(call)["path"] for call in sent.await_args_list]
         assert paths == ["/", "/A", "/B", "/A/A1", "/B/B1"]
 
     async def test_search_fails_when_a_batched_listing_fails(self):
@@ -242,9 +249,9 @@ class TestSearchAndAccount:
         levels = [
             _listing([{"name": f"d{i}", "isfolder": True}]) for i in range(search_module.MAX_DEPTH)
         ]
-        with patch_client(*levels) as get:
+        with patch_client(*levels) as sent:
             out = await tools.search("hit-deep", "/")
-        assert get.await_count == search_module.MAX_DEPTH
+        assert sent.await_count == search_module.MAX_DEPTH
         assert "(empty)" in out
         assert f"deeper than {search_module.MAX_DEPTH} levels" in out
 
@@ -297,9 +304,9 @@ class TestSearchAndAccount:
         cap = search_module.MAX_LISTINGS
         wide = [{"name": f"f{i}", "isfolder": True} for i in range(cap + 10)]
         responses = [_listing(wide)] + [_listing([]) for _ in range(cap)]
-        with patch_client(*responses) as get:
+        with patch_client(*responses) as sent:
             out = await tools.search("nothing", "/")
-        assert get.await_count == cap
+        assert sent.await_count == cap
         assert f"stopped after listing {cap} folders; narrow the path" in out
         assert "truncated" not in out
 
@@ -391,18 +398,15 @@ class TestSessionTokenTransport:
         config_module._config = None
         client_module._client = None
 
-        sent = {}
+        with patch_client(mock_response({"result": 0, "metadata": FILE_META})) as sent:
+            await tools.get_file_info("/Documents/report.pdf")
 
-        async def fake_post(_self, url, **kwargs):
-            sent["url"] = url
-            sent["data"] = kwargs.get("data")
-            return mock_response({"result": 0, "metadata": FILE_META})
-
-        monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
-        await tools.get_file_info("/Documents/report.pdf")
-
-        assert sent["data"]["auth"] == "session-value"
-        assert "session-value" not in sent["url"]
+        request = sent_request(sent.call_args)
+        # Read off the wire rather than the kwargs, which is the only way to
+        # show the token did not also end up in the query string.
+        assert request.method == "POST"
+        assert "auth=session-value" in request.content.decode()
+        assert "session-value" not in str(request.url)
 
     async def test_oauth_mode_uses_get_with_bearer_header(self):
         with patch_client(mock_response({"result": 0, "metadata": FILE_META})):
@@ -512,27 +516,31 @@ async def _api_methods_called(name: str, tmp_path: Any, monkeypatch: Any) -> lis
     config_module._config = None
     before = (store.read_bytes(), store.stat().st_mtime_ns, sorted(tmp_path.iterdir()))
 
-    async def fake_get(url: str, **_kwargs: Any) -> httpx.Response:
-        if url.startswith("https://"):
+    async def fake_send(request: httpx.Request, **_kwargs: Any) -> httpx.Response:
+        if request.url.host == CONTENT_HOST:
             return text_response("file body")
         return mock_response(payload)
 
-    get = AsyncMock(side_effect=fake_get)
-    post = AsyncMock()
+    send = AsyncMock(side_effect=fake_send)
+    sync_send = MagicMock()
     with (
-        patch.object(httpx.AsyncClient, "get", get),
-        patch.object(httpx.AsyncClient, "post", post),
-        patch.object(httpx.Client, "post", post),
+        patch.object(httpx.AsyncClient, "send", send),
+        patch.object(httpx.Client, "send", sync_send),
     ):
         await mcp.call_tool(name, arguments)
 
-    post.assert_not_called()
+    # The sync client exists only for the token exchange, which stores a
+    # credential: a read-only tool has no business reaching it.
+    sync_send.assert_not_called()
     assert (store.read_bytes(), store.stat().st_mtime_ns, sorted(tmp_path.iterdir())) == before
-    urls = [call.args[0] for call in get.await_args_list]
-    # A full URL is the content download pCloud pointed at; the rest are API methods.
-    content = [url for url in urls if url.startswith("https://")]
-    assert all(url.startswith(f"https://{CONTENT_HOST}/") for url in content)
-    return [url.removeprefix("/") for url in urls if url not in content]
+    requests = [sent_request(call) for call in send.await_args_list]
+    # The HTTP verb is the read/write signal now that one send path carries
+    # both: the API is GET under OAuth, and a write would be a POST.
+    assert all(request.method == "GET" for request in requests)
+    # A content host is the download pCloud pointed at; the rest are API methods.
+    api = [request for request in requests if request.url.host != CONTENT_HOST]
+    assert all(request.url.host == CONTENT_HOST for request in requests if request not in api)
+    return [request.url.path.removeprefix("/") for request in api]
 
 
 class TestReadOnlyAnnotation:
