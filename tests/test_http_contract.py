@@ -359,5 +359,14 @@ class TestTheTokenExchangeQuotesNoBody:
         message = str(caught.value)
         assert "leaked" not in message
         assert "interstitial" not in message
-        # It still has to say where, or there is nothing to act on.
-        assert "api.pcloud.com" in message
+        # The whole message, not a substring: CodeQL is right that a
+        # `"api.pcloud.com" in message` test also passes for a host that
+        # merely contains it, and this says what the reader actually gets --
+        # where it went and what went wrong, and nothing from the body.
+        assert message == (
+            "pCloud authentication failed: Token exchange with api.pcloud.com "
+            "failed: Expecting value: line 1 column 1 (char 0). Run "
+            "`mcp-pcloud-crunchtools login` to authorize again, or set "
+            "PCLOUD_ACCESS_TOKEN (or PCLOUD_ACCESS_TOKEN_FILE) to a valid "
+            "OAuth access token."
+        )
