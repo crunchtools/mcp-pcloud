@@ -1,0 +1,26 @@
+# Judged Gatehouse findings. Each needs a status and a reason; see
+# crunchtools/gatehouse. Both entries here are the same finding on the two
+# read paths, raised against the RT #1601 outbound HTTP contract work
+# (constitution v1.36.0, MCP Server profile 1.8.0).
+
+# `aiter_bytes()` yields DECODED bytes, so a compressed body can expand into
+# one chunk larger than the cap before the running total is measured. Real,
+# and true of every repo in this sweep: the cap bounds the decoded body, not
+# the wire. Counting wire bytes INSTEAD would be strictly worse, which is why
+# it is a contract change rather than ten hand-copied fixes.
+[[findings]]
+agent = "security"
+category = "security"
+file = "src/mcp_pcloud_crunchtools/client.py"
+evidence = "async for chunk in response.aiter_bytes():\n    if len(body) + len(chunk) > MAX_RESPONSE_SIZE:\n        raise PCloudApiError(...)"
+status = "deferred"
+reason = "Fleet-wide, not specific to this client: bounding wire bytes as well as the decoded body is https://github.com/crunchtools/constitution/issues/106. The residual today is one wire chunk's expansion, since the loop stops before the chunk that would pass the cap"
+
+# The same mechanism on the synchronous token exchange, whose cap is 1MB.
+[[findings]]
+agent = "security"
+category = "security"
+file = "src/mcp_pcloud_crunchtools/auth.py"
+evidence = "for chunk in response.iter_bytes():\n    if len(body) + len(chunk) > MAX_RESPONSE_SIZE:\n        raise AuthenticationError(...)"
+status = "deferred"
+reason = "Same mechanism as the client.py entry and the same fix: https://github.com/crunchtools/constitution/issues/106. This path's cap is 1MB rather than 10MB, so one chunk's expansion is bounded an order of magnitude tighter"
