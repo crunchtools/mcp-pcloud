@@ -51,3 +51,13 @@ path = ".pre-commit-config.yaml"
 pattern = "ruff-check"
 justification = "ruff runs inside the sdlc-commit hook from python-sdlc (constitution XII v1.30.0), configured by [tool.ruff] in pyproject.toml; Gourmand looks for a literal ruff hook id"
 classification = "by_design"
+
+# EV010 does not count calls made inside an f-string, which is where all but
+# one of `_where`'s call sites are. Inlining it would duplicate the
+# method/URL/status/content-type format across every error path in the module,
+# which is exactly what makes such messages drift apart.
+[[exceptions]]
+check = "single_use_helpers"
+path = "src/mcp_pcloud_crunchtools/client.py"
+justification = "_where has six call sites; five are inside f-strings and are not counted. Inlining it would duplicate the method/URL/status/content-type format in six error paths, which is what makes such messages drift apart"
+classification = "gourmand_bug"

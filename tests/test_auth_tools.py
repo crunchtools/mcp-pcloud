@@ -1,8 +1,5 @@
 """Browser-authorization tools and the /callback route."""
 
-from unittest.mock import patch
-
-import httpx
 import pytest
 from pydantic import SecretStr
 
@@ -14,6 +11,7 @@ from mcp_pcloud_crunchtools.auth import (
     get_pending_login,
 )
 from mcp_pcloud_crunchtools.errors import AuthenticationError
+from tests.helpers import patch_token_exchange
 
 
 class TestPendingLogin:
@@ -67,18 +65,10 @@ class TestCompleteLogin:
     @staticmethod
     def _complete(tmp_path, *, state, hostname="api.pcloud.com", payload=None):
         store = TokenStore(path=tmp_path / "tokens.json")
-        captured = {}
 
-        def fake_post(_self, url, data=None, **_kw):
-            captured["url"] = url
-            captured["data"] = data
-            return httpx.Response(
-                200,
-                json=payload or {"result": 0, "access_token": "tok", "uid": 7},
-                request=httpx.Request("POST", url),
-            )
-
-        with patch.object(httpx.Client, "post", fake_post):
+        with patch_token_exchange(
+            payload or {"result": 0, "access_token": "tok", "uid": 7}
+        ) as captured:
             data = complete_login(
                 "cid",
                 SecretStr("csec"),

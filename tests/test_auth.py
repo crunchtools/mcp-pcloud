@@ -20,6 +20,7 @@ from mcp_pcloud_crunchtools.errors import (
     AuthenticationError,
     TokenUnavailableError,
 )
+from tests.helpers import patch_token_exchange
 
 
 def _store(tmp_path):
@@ -174,28 +175,19 @@ class TestLoginFlow:
     @staticmethod
     def _run(tmp_path, server, post_payload=None, post_side_effect=None):
         store = _store(tmp_path)
-        captured = {}
 
         def fake_server(_addr, _handler):
             # The real state is generated inside run_login_flow; echo it back
             # so the CSRF check passes unless a test says otherwise.
             return server
 
-        def fake_post(_self, url, data=None, **_kwargs):
-            captured["url"] = url
-            captured["data"] = data
-            if post_side_effect is not None:
-                raise post_side_effect
-            return httpx.Response(
-                200,
-                json=post_payload or {"result": 0, "access_token": "tok", "uid": 1},
-                request=httpx.Request("POST", url),
-            )
-
         with (
             patch("mcp_pcloud_crunchtools.auth._CallbackServer", fake_server),
             patch("mcp_pcloud_crunchtools.auth.webbrowser.open"),
-            patch.object(httpx.Client, "post", fake_post),
+            patch_token_exchange(
+                post_payload or {"result": 0, "access_token": "tok", "uid": 1},
+                side_effect=post_side_effect,
+            ) as captured,
         ):
             result = run_login_flow(
                 client_id="cid",
@@ -281,7 +273,9 @@ class TestLoginFlow:
         server = _fake_callback()
         with (
             patch("mcp_pcloud_crunchtools.auth.secrets.compare_digest", return_value=True),
-            pytest.raises(AuthenticationError, match="Token exchange failed"),
+            pytest.raises(
+                AuthenticationError, match=r"Token exchange with api\.pcloud\.com failed"
+            ),
         ):
             self._run(tmp_path, server, post_side_effect=httpx.ConnectError("no route"))
 
@@ -370,20 +364,12 @@ class TestManualLogin:
         from mcp_pcloud_crunchtools.auth import run_manual_login
 
         store = _store(tmp_path)
-        captured = {}
-
-        def fake_post(_self, url, data=None, **_kw):
-            captured["url"] = url
-            captured["data"] = data
-            return httpx.Response(
-                200,
-                json=payload or {"result": 0, "access_token": "tok", "uid": 99},
-                request=httpx.Request("POST", url),
-            )
 
         with (
             patch("builtins.input", return_value=typed),
-            patch.object(httpx.Client, "post", fake_post),
+            patch_token_exchange(
+                payload or {"result": 0, "access_token": "tok", "uid": 99}
+            ) as captured,
         ):
             data = run_manual_login(
                 client_id="cid",
@@ -434,20 +420,11 @@ class TestRedirectUriOverride:
 
         monkeypatch.setenv("PCLOUD_OAUTH_REDIRECT_URI", "https://mcp-pcloud.example.com/callback")
         server = _fake_callback(hostname=US_API_HOST)
-        captured = {}
-
-        def fake_post(_self, url, data=None, **_kw):
-            captured["data"] = data
-            return httpx.Response(
-                200,
-                json={"result": 0, "access_token": "t"},
-                request=httpx.Request("POST", url),
-            )
 
         with (
             patch.object(auth_mod, "_CallbackServer", lambda *_a: server),
             patch.object(auth_mod.secrets, "compare_digest", return_value=True),
-            patch.object(httpx.Client, "post", fake_post),
+            patch_token_exchange({"result": 0, "access_token": "t"}) as captured,
         ):
             auth_mod.run_login_flow("cid", SecretStr("csec"), _store(tmp_path), open_browser=False)
 

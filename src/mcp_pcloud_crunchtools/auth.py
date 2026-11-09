@@ -36,6 +36,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import httpx
 from pydantic import BaseModel, SecretStr
 
+from .client import USER_AGENT
 from .errors import AuthenticationError, TokenUnavailableError, register_secret
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,10 @@ EU_API_HOST = "eapi.pcloud.com"
 VALID_API_HOSTS = (US_API_HOST, EU_API_HOST)
 
 HTTP_TIMEOUT = 30.0
+# A token response is a handful of JSON fields. The ceiling is here so that
+# whatever answers on the token URL cannot be read whole into the process --
+# an SSO interstitial on the way to pCloud is a page, not a token.
+MAX_RESPONSE_SIZE = 1024 * 1024
 HTTP_OK = 200
 PCLOUD_OK = 0
 
@@ -209,6 +214,32 @@ def build_authorize_url(client_id: str, state: str, redirect_uri: str | None) ->
     return f"{OAUTH_AUTHORIZE_URL}?{urlencode(params)}"
 
 
+def _read_capped(response: httpx.Response, url: str) -> bytes:
+    """Read a token response, aborting as soon as it would pass the ceiling.
+
+    Deliberately quotes no part of the body, unlike the API client: this is the
+    one endpoint whose body is a credential, so the message says where and how
+    big, and nothing about what came back.
+    """
+    declared = response.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_RESPONSE_SIZE:
+        raise AuthenticationError(
+            f"Token exchange with {url} declared {declared} bytes, over the "
+            f"{MAX_RESPONSE_SIZE} byte limit"
+        )
+    body = bytearray()
+    # Measured before each chunk is copied in: `iter_bytes()` promises nothing
+    # about chunk size, so a check after the append has already spent the
+    # memory the limit exists to protect.
+    for chunk in response.iter_bytes():
+        if len(body) + len(chunk) > MAX_RESPONSE_SIZE:
+            raise AuthenticationError(
+                f"Token exchange with {url} sent over the {MAX_RESPONSE_SIZE} byte limit"
+            )
+        body += chunk
+    return bytes(body)
+
+
 def _exchange_code(
     client_id: str,
     client_secret: SecretStr,
@@ -228,17 +259,23 @@ def _exchange_code(
     if redirect_uri:
         form["redirect_uri"] = redirect_uri
 
+    url = f"https://{api_host}/oauth2_token"
     try:
-        with httpx.Client(timeout=HTTP_TIMEOUT, verify=True) as http:
-            response = http.post(f"https://{api_host}/oauth2_token", data=form)
+        with httpx.Client(
+            timeout=HTTP_TIMEOUT,
+            verify=True,
+            headers={"User-Agent": USER_AGENT},
+        ) as http:
+            with http.stream("POST", url, data=form) as response:
+                body = _read_capped(response, url)
             response.raise_for_status()
-            payload = response.json()
+            payload = json.loads(body)
     except httpx.HTTPStatusError as exc:
         raise AuthenticationError(
-            f"Token exchange failed with HTTP {exc.response.status_code}"
+            f"Token exchange with {api_host} failed with HTTP {exc.response.status_code}"
         ) from exc
     except (httpx.HTTPError, ValueError) as exc:
-        raise AuthenticationError(f"Token exchange failed: {exc}") from exc
+        raise AuthenticationError(f"Token exchange with {api_host} failed: {exc}") from exc
 
     # pCloud signals failure with a non-zero ``result`` field rather than an
     # HTTP status, so a 200 response still has to be inspected.
