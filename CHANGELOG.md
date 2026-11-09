@@ -32,6 +32,11 @@ All notable changes to this project are documented here. The format follows
   (`code`, `auth`, `access_token`, …) are replaced. The token exchange quotes
   no body at all — it is the one endpoint whose body is a credential.
 
+- **A content download honours the charset it was given.** This path replaced
+  `response.text`, which read the declared charset, so a first version that
+  decoded as UTF-8 unconditionally would have returned a Latin-1 document with
+  replacement characters where its accents were.
+
 - **A transport failure names the request.** `Request to listfolder failed`
   named a method and not a URL, and httpx's own message does not reliably
   carry one.

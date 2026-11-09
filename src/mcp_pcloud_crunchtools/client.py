@@ -285,7 +285,12 @@ class PCloudClient:
             raise PCloudApiError(
                 response.status_code, f"{_where(response)} returned {_body_snippet(body)}"
             )
-        return body.decode("utf-8", errors="replace")
+        # The charset the response declared, not a hardcoded UTF-8: this
+        # replaced `response.text`, which honoured it, and a Latin-1 document
+        # silently decoded as UTF-8 comes back with replacement characters
+        # where its accents were. httpx reads this from the header alone and
+        # falls back to UTF-8, which is what a pCloud text file is in practice.
+        return body.decode(response.encoding or "utf-8", errors="replace")
 
 
 _client: PCloudClient | None = None

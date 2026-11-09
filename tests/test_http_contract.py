@@ -266,6 +266,73 @@ class TestErrorNamesTheSite:
         assert "<empty body>" in str(caught.value)
 
 
+class TestContentDecoding:
+    """A download honours the charset it was given, as `response.text` did."""
+
+    @pytest.mark.asyncio
+    async def test_a_declared_charset_is_honoured(self) -> None:
+        """Forcing UTF-8 turns a Latin-1 document's accents into question marks."""
+        latin1 = "caf\u00e9 \u2014 r\u00e9sum\u00e9".encode("iso-8859-1", errors="replace")
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/plain; charset=iso-8859-1"},
+                content=latin1,
+            )
+
+        with _serving(handler) as client:
+            text = await client.fetch_text(CONTENT_URL)
+            await client.close()
+
+        assert text.startswith("caf\u00e9")
+        assert "\ufffd" not in text
+
+    @pytest.mark.asyncio
+    async def test_no_declared_charset_falls_back_to_utf8(self) -> None:
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content="caf\u00e9".encode())
+
+        with _serving(handler) as client:
+            text = await client.fetch_text(CONTENT_URL)
+            await client.close()
+
+        assert text == "caf\u00e9"
+
+    @pytest.mark.asyncio
+    async def test_undecodable_bytes_do_not_raise(self) -> None:
+        """A text tool that throws on one bad byte is worse than one that marks it."""
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b"ok \xff\xfe")
+
+        with _serving(handler) as client:
+            text = await client.fetch_text(CONTENT_URL)
+            await client.close()
+
+        assert text.startswith("ok ")
+
+
+class TestBodySnippet:
+    """Every error message this change adds goes through it."""
+
+    def test_an_empty_body_says_so(self) -> None:
+        assert client_mod._body_snippet(b"") == "<empty body>"
+
+    def test_a_whitespace_only_body_says_so_too(self) -> None:
+        """A message quoting three spaces is worse than one saying nothing came back."""
+        assert client_mod._body_snippet(b"  \n\t ") == "<empty body>"
+
+    def test_a_long_body_is_cut_to_the_cap_including_the_ellipsis(self) -> None:
+        snippet = client_mod._body_snippet(b"y" * 100_000)
+
+        assert len(snippet) == client_mod.BODY_SNIPPET_CHARS
+        assert snippet.endswith("...")
+
+    def test_a_multiline_page_is_collapsed_to_one_line(self) -> None:
+        assert client_mod._body_snippet(b"<html>\n  <body>\n  gone\n") == "<html> <body> gone"
+
+
 class TestTheNamedUrlCarriesNoSignature:
     """A content URL is signed, so naming it has to not publish the signature."""
 
@@ -286,6 +353,31 @@ class TestTheNamedUrlCarriesNoSignature:
         # The rest of the URL still has to be there, or the error is no better
         # than the status code it replaced.
         assert "c1.pcloud.com/dl/notes.txt" in message
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("name", sorted(client_mod.REDACTED_PARAMS))
+    async def test_every_credential_shaped_parameter_is_redacted(self, name: str) -> None:
+        """One test per name, so the set cannot grow an unredacted member."""
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, headers={"content-type": "text/html"}, text="gone")
+
+        with _serving(handler) as client, pytest.raises(PCloudApiError) as caught:
+            await client.fetch_text(f"https://c1.pcloud.com/dl/a.txt?{name}=the-secret-value")
+
+        assert "the-secret-value" not in str(caught.value)
+
+    @pytest.mark.asyncio
+    async def test_a_parameter_that_is_not_a_credential_is_left_alone(self) -> None:
+        """Redacting everything would make the URL useless for diagnosis."""
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, headers={"content-type": "text/html"}, text="gone")
+
+        with _serving(handler) as client, pytest.raises(PCloudApiError) as caught:
+            await client.fetch_text("https://c1.pcloud.com/dl/a.txt?forcedownload=1")
+
+        assert "forcedownload=1" in str(caught.value)
 
     @pytest.mark.asyncio
     async def test_userinfo_is_dropped(self) -> None:
