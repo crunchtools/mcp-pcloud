@@ -4,7 +4,7 @@
 > **Ratified:** 2026-09-05
 > **Amended:** 2026-10-02
 > **Status:** Active
-> **Inherits:** [crunchtools/constitution](https://github.com/crunchtools/constitution) v1.36.0
+> **Inherits:** [crunchtools/constitution](https://github.com/crunchtools/constitution) v1.39.1
 > **Profile:** MCP Server
 
 This file holds what is specific to mcp-pcloud. The fleet rules and the MCP
@@ -67,7 +67,7 @@ contract, and the backend fleet runs the v1 protocol.
 | GitHub repo | `crunchtools/mcp-pcloud` |
 | PyPI package | `mcp-pcloud-crunchtools` |
 | Python module | `mcp_pcloud_crunchtools` |
-| Container image | `quay.io/crunchtools/mcp-pcloud`, `ghcr.io/crunchtools/mcp-pcloud` |
+| Container image | `quay.io/crunchtools/mcp-pcloud` |
 | MCP Registry | `io.github.crunchtools/pcloud` |
 | systemd service | `mcp-pcloud.crunchtools.com.service` |
 | HTTP port | 8028 |
