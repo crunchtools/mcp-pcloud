@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [3.3.2] - 2026-11-17
+
 ### Security
 
 - Bump dnspython 2.9.1 to 2.9.2 in `uv.lock` for CVE-2026-128089
